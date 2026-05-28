@@ -1,0 +1,108 @@
+# TEMPLATE — copy this to v5103-g3010mode-attempt-1-<TS>.meta.yaml after
+# the R1 cheap-spike capture (just canon-r1-capture v5103-g3010mode-attempt-1).
+# Fill in the FIXME markers from your in-lab observations.
+
+file: 'v5103-g3010mode-attempt-1-FIXME-TS.pcapng.gz'   # actual timestamp from filename
+compressed_size_bytes: FIXME
+uncompressed_size_bytes: FIXME
+packet_count: FIXME
+duration_seconds: FIXME
+
+# ─── When + how ────────────────────────────────────────────────────
+
+captured_at: 'FIXME'                          # ISO8601 — capture start time
+captured_by: 'jess via lab session at mbp-13'
+capture_method: |
+  Driven by services/canon-tool/scripts/r1-capture.sh on mbp-13:
+    1. Pre-flight verified G6020 fw=1.070 still matches locked fingerprint
+    2. systemctl stop ipp-usb
+    3. tshark -i usbmon1 -w /tmp/... -F pcapng (root)
+    4. wine ~/canon-tool-staging/extracted/ServiceTool_v5103/ServiceTool_v5103.exe
+       via ssh -X to mbp-13 (or local display)
+    5. Service Tool GUI: Model: G3010 series → Maintenance →
+       Ink Absorber Counter → clicked "Set"
+    6. Closed Service Tool, pressed ENTER in r1-capture.sh terminal
+    7. chown + mv to ~/canon-tool-staging/captures/, gzip -9, ipp-usb restart
+
+# ─── The target printer at capture time ────────────────────────────
+
+captured_against:
+  uuid: '00000000-0000-1000-8000-00186501807c'  # locked test_unit
+  firmware_version: '1.070'
+  serial_number_string: '01807C'
+
+# ─── The Service Tool driver ─────────────────────────────────────────
+
+service_tool:
+  version: 'v5103'
+  exe_sha256: '98ca97b37a36a73d1a91630b8bde455b7dd109960073a0369295e34be6317c48'
+  bundled_runtime: false
+  source: 'github.com/shpgn/service_tool_canon'
+  drm: 'none'
+
+wine:
+  version: '11.0'
+  source: 'flathub:app/org.winehq.Wine/x86_64/stable-25.08'
+
+# ─── Operator interaction ──────────────────────────────────────────
+
+operation: 'absorber_reset'
+mode_selected: 'G3010 series'                 # model dropdown selection
+gui_steps_taken:
+  - 'FIXME — list every clickable action in the order taken'
+  - 'Model dropdown: G3010 series'
+  - 'Maintenance tab / Function: Ink Absorber Counter'
+  - 'Clicked: Set (or OK / Execute — confirm the exact button text)'
+
+gui_observations:
+  popup_messages_seen:
+    - 'FIXME — any modal dialogs, error pops, confirmations'
+  unexpected_behavior:
+    - 'FIXME — anything surprising (rejection, crashes, slow response)'
+
+# ─── Outcome (the critical field) ───────────────────────────────────
+
+result: 'FIXME'                               # success | rejected | no_response | mechanical_fault | partial | unknown
+
+result_evidence: |
+  FIXME — what changed on the printer:
+    - Did the Service Tool show OK / Done / Error?
+    - Did the printer status LED change?
+    - Power-cycle the printer (off → on).
+    - After boot: did 5B00 return, or did the printer come up "idle"?
+    - IPP poll: ssh mbp-13 '/usr/bin/ipptool -tv ipp://localhost:60001/ipp/print get-printer-attributes.test | grep -iE "printer-state|alert"'
+
+# ─── For successful captures: filled by analysis ────────────────────
+# These get populated by `just canon-analyze` after rsync to neo.
+# DO NOT hand-fill these — let the analyzer pin the byte sequences.
+
+extracted_byte_sequence:
+  bulk_out_to_endpoint_03:                    # interface 4 maintenance channel
+    - hex: 'FIXME'                            # filled by analyzer
+      annotation: 'FIXME — heuristic protocol family if identified'
+  bulk_in_from_endpoint_86:
+    - hex: 'FIXME'
+      annotation: 'FIXME'
+  bulk_in_from_endpoint_82:                   # interface 1 USB-IF printer class
+    - hex: 'FIXME'                            # IEEE-1284 device-id read
+      annotation: 'standard printer-class device-id query'
+
+# ─── Diff against the negative-control baseline ────────────────────
+# The launch-no-clicks fixture (v5103-wine-launch-no-clicks-20260528-222034)
+# had ZERO bulk-OUT on endpoint 0x03. Any bulk-OUT 0x03 traffic in THIS
+# capture is the maintenance command we want to extract.
+
+diff_against_baseline:
+  added_bulk_out_0x03_count: FIXME            # > 0 = hypothesis confirmed
+  added_bulk_in_0x86_count: FIXME
+  baseline_pcap: 'v5103-wine-launch-no-clicks-20260528-222034.pcapng.gz'
+
+# ─── Free-form notes ────────────────────────────────────────────────
+
+notes: |
+  FIXME — anything else worth recording. Examples:
+    - Wine console output (any wineusb fixme lines worth noting?)
+    - tshark capture artifacts (gaps, packet drops, weird timing?)
+    - Time taken from launching ST to clicking Set
+    - Whether ipp-usb came back active cleanly after capture
+    - Whether the CUPS office queue worked normally afterwards
