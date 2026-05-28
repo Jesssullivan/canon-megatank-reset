@@ -1,0 +1,132 @@
+---
+# canon_tool_dev — install the capture + RE environment on the dev host.
+# Idempotent. Safe to re-run. Does not modify the canon-tool service itself.
+
+# ─── Pre-flight: unblock dnf ─────────────────────────────────────────────────
+# Tailscale's repo metadata is signed with a key that needs to be imported
+# before dnf can refresh — otherwise it prompts interactively and silently
+# blocks every package query. We import unconditionally; rpm is idempotent.
+
+- name: 'pre-flight: import Tailscale repo GPG key (unblocks dnf)'
+  ansible.builtin.rpm_key:
+    state: present
+    key: 'https://pkgs.tailscale.com/stable/rhel/10/repo.gpg'
+  tags: [canon-tool-dev, dnf]
+
+# ─── Groups + user membership ────────────────────────────────────────────────
+
+- name: 'group: printstack (for udev USB access)'
+  ansible.builtin.group:
+    name: printstack
+    state: present
+    system: true
+  tags: [canon-tool-dev, groups]
+
+- name: 'user: add {{ canon_tool_dev_capture_user }} to printstack + wireshark groups'
+  ansible.builtin.user:
+    name: '{{ canon_tool_dev_capture_user }}'
+    groups: 'printstack,wireshark'
+    append: true
+  tags: [canon-tool-dev, groups]
+  # `wireshark` group exists after wireshark-cli is installed below; we'll
+  # re-run the user task at the end to ensure it lands. Idempotent.
+
+# ─── Core capture stack from Rocky 10 repos ──────────────────────────────────
+
+- name: 'dnf: install USB capture + Python USB packages'
+  ansible.builtin.dnf:
+    name:
+      - wireshark
+      - wireshark-cli
+      - libpcap
+      - python3-pyusb
+      - libusb1-devel
+      - libusb-compat-0.1
+      - p7zip
+      - p7zip-plugins
+    state: present
+    disablerepo: tailscale-stable    # belt-and-braces; key was imported above
+  tags: [canon-tool-dev, capture]
+
+- name: 'dnf: install QEMU + libvirt (R2 path)'
+  ansible.builtin.dnf:
+    name:
+      - qemu-kvm
+      - qemu-img
+      - libvirt-daemon-kvm
+      - libvirt-client
+      - virt-install
+      - virt-manager
+      - edk2-ovmf
+    state: present
+    disablerepo: tailscale-stable
+  when: canon_tool_dev_install_qemu | bool
+  tags: [canon-tool-dev, qemu]
+
+- name: 'service: enable + start libvirtd'
+  ansible.builtin.systemd:
+    name: libvirtd
+    enabled: true
+    state: started
+  when: canon_tool_dev_install_qemu | bool
+  tags: [canon-tool-dev, qemu]
+
+# ─── Winehq third-party repo + wine itself ───────────────────────────────────
+
+- name: 'winehq: write repo file'
+  ansible.builtin.yum_repository:
+    name: winehq
+    description: 'Winehq packages for {{ canon_tool_dev_wine_repo_distro }} {{ canon_tool_dev_wine_repo_distro_version }}'
+    baseurl: 'https://dl.winehq.org/wine-builds/{{ canon_tool_dev_wine_repo_distro }}/{{ canon_tool_dev_wine_repo_distro_version }}/'
+    gpgkey: 'https://dl.winehq.org/wine-builds/winehq.key'
+    gpgcheck: true
+    enabled: true
+    file: winehq
+  tags: [canon-tool-dev, wine]
+
+- name: 'dnf: install winehq-{{ canon_tool_dev_wine_branch }}'
+  ansible.builtin.dnf:
+    name: 'winehq-{{ canon_tool_dev_wine_branch }}'
+    state: present
+    disablerepo: tailscale-stable
+  tags: [canon-tool-dev, wine]
+
+# ─── usbmon kernel module + udev rules ───────────────────────────────────────
+
+- name: 'usbmon: autoload at boot'
+  ansible.builtin.copy:
+    src: usbmon.modules.conf
+    dest: /etc/modules-load.d/usbmon.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: load usbmon now
+  tags: [canon-tool-dev, usb]
+
+- name: 'udev: install Canon G-series rule'
+  ansible.builtin.copy:
+    src: 50-canon-g6020.rules
+    dest: /etc/udev/rules.d/50-canon-g6020.rules
+    owner: root
+    group: root
+    mode: '0644'
+  notify: reload udev
+  tags: [canon-tool-dev, usb]
+
+# ─── Final group membership refresh (wireshark group now exists) ─────────────
+
+- name: 'user: re-confirm {{ canon_tool_dev_capture_user }} in wireshark group'
+  ansible.builtin.user:
+    name: '{{ canon_tool_dev_capture_user }}'
+    groups: 'printstack,wireshark'
+    append: true
+  tags: [canon-tool-dev, groups]
+
+- name: 'note: log out + back in for new group membership to take effect'
+  ansible.builtin.debug:
+    msg: |
+      Role complete. NOTE: {{ canon_tool_dev_capture_user }} must log out and
+      log back in (or run `newgrp wireshark; newgrp printstack`) for the new
+      group membership to be effective in interactive shells. systemd units
+      pick it up at next start.
+  tags: [canon-tool-dev]

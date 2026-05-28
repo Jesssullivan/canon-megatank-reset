@@ -1,0 +1,9 @@
+---
+- name: load usbmon now
+  ansible.builtin.modprobe:
+    name: usbmon
+    state: present
+
+- name: reload udev
+  ansible.builtin.shell: 'udevadm control --reload && udevadm trigger --subsystem-match=usb'
+  changed_when: true

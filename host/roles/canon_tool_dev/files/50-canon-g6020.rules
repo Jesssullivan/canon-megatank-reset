@@ -1,0 +1,12 @@
+# udev rules for canon-tool USB access
+# Matches all Canon (vendor 04a9) USB devices. Grants the printstack group
+# read/write on the bulk endpoint so canon-tool service can open it without
+# root.
+#
+# NOTE: this rule applies broadly to ANY 04a9 device. If you attach a
+# different Canon device that must NOT be touched by canon-tool, narrow this
+# to specific product IDs (e.g. ATTRS{idProduct}=="1865" for G6020 only).
+#
+# Reload after editing: sudo udevadm control --reload && sudo udevadm trigger
+
+SUBSYSTEM=="usb", ATTRS{idVendor}=="04a9", MODE="0660", GROUP="printstack", TAG+="uaccess"

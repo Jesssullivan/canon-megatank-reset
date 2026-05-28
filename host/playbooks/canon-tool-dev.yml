@@ -1,0 +1,20 @@
+---
+# Apply only the canon_tool_dev role — capture + RE environment.
+# See host/roles/canon_tool_dev/README.md.
+#
+# This branch's inventory uses `printbox` (stub from main). For real runs
+# against `mbp-13`, invoke with the M1 branch's inventory file:
+#
+#   ANSIBLE_BECOME_PASS="$(cat "$BECOME_PASSWORD_FILE")" \
+#     ansible-playbook \
+#       -i /Users/jess/git/printstack/host/inventory/hosts.yml \
+#       host/playbooks/canon-tool-dev.yml \
+#       -l mbp-13
+#
+# Or, post-merge of M1 + canon-tool, just run with the in-tree inventory.
+
+- name: 'printstack — canon-tool dev environment'
+  hosts: all
+  become: true
+  roles:
+    - canon_tool_dev
