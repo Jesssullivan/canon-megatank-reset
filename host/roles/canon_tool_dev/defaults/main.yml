@@ -2,16 +2,13 @@
 # Defaults for canon_tool_dev. Override in inventory/group_vars or via
 # `ansible-playbook -e ...`.
 
-# Which Winehq variant to install. "stable" is the LTS-style branch;
-# "staging" has more Win-app compat but more churn. "devel" is bleeding edge.
-canon_tool_dev_wine_branch: stable
-
-# Winehq's per-distro repo file lives under .../wine-builds/<distro>/<version>/.
-# Rocky 10 / RHEL 10's official Winehq repo isn't published yet (as of 2026-05).
-# CentOS 9 (RHEL-9 ABI) is the closest practical fit and works on Rocky 10.
-# Override to "10" once Winehq ships RHEL10 builds.
-canon_tool_dev_wine_repo_distro: centos
-canon_tool_dev_wine_repo_distro_version: '9'
+# Wine on Rocky 10 comes from Flathub (Winehq dropped CentOS/RHEL RPM
+# support; only Fedora 40/41 published as of 2026-05). The Flathub
+# `org.winehq.Wine` app has multiple branches; we pin to a specific one
+# for reproducibility. stable-25.08 is the latest stable as of 2026-05;
+# it supports both 32-bit (Win32 MFC apps like Canon Service Tool) and
+# 64-bit Windows apps directly.
+canon_tool_dev_wine_flatpak_ref: 'app/org.winehq.Wine/x86_64/stable-25.08'
 
 # Whether to also install qemu-kvm + libvirt + virt-manager (the R2 path).
 # Set false if you only want the R1 (Wine+usbmon) path on this host.
