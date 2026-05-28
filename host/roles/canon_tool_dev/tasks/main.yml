@@ -22,14 +22,12 @@
     system: true
   tags: [canon-tool-dev, groups]
 
-- name: 'user: add {{ canon_tool_dev_capture_user }} to printstack + wireshark groups'
+- name: 'user: add {{ canon_tool_dev_capture_user }} to printstack group (wireshark group added post-install)'
   ansible.builtin.user:
     name: '{{ canon_tool_dev_capture_user }}'
-    groups: 'printstack,wireshark'
+    groups: 'printstack'
     append: true
   tags: [canon-tool-dev, groups]
-  # `wireshark` group exists after wireshark-cli is installed below; we'll
-  # re-run the user task at the end to ensure it lands. Idempotent.
 
 # ─── Core capture stack from Rocky 10 repos ──────────────────────────────────
 
