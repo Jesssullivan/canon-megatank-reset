@@ -31,12 +31,17 @@ differential cross-check. Don't choose one over the other up front.
 
 ### Step 1 — Stage Win11 ISO on mbp-13
 
-The user already started a Win11 ISO download on `neo`. Once complete:
+The Win11 ISO lives on mbp-13 (moved from neo on 2026-05-28 to free
+neo disk space — neo was at 99%). Current path:
 
-```sh
-# From neo:
-rsync -av ~/Downloads/Win11_*.iso mbp-13:~/canon-tool-staging/iso/
 ```
+mbp-13:~/canon-tool-staging/iso/Win11_25H2_English_x64_v2.iso
+```
+
+If the ISO is missing (e.g. wiped during a /home rebuild), re-acquire
+from `https://www.microsoft.com/software-download/windows11` and stash
+back into the same path. SHA256 is pinned in
+`printers/canon-g6020/maintenance.yaml::win11_iso.sha256`.
 
 ### Step 2 — Create the libvirt domain XML
 
