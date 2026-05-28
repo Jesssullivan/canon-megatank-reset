@@ -181,3 +181,16 @@ service_tool_versions:
 staging_locations:
   neo: '/tmp/canon-tool-staging/'
   mbp_13: '~/canon-tool-staging/'
+
+# ─── Win11 ISO (R2 QEMU spike target) ────────────────────────────────────────
+# Lives on mbp-13 only — neo was at 99% disk so we keep the canonical copy
+# on the box with 785G free. If lost, re-download from
+# microsoft.com/software-download/windows11 and verify the SHA256 below.
+
+win11_iso:
+  filename: 'Win11_25H2_English_x64_v2.iso'
+  size_bytes: 8505430016                       # 7.92 GiB
+  sha256: '768984706b909479417b2368438909440f2967ff05c6a9195ed2667254e465e3'
+  acquired: '2026-05-28'
+  location: 'mbp-13:~/canon-tool-staging/iso/Win11_25H2_English_x64_v2.iso'
+  source: 'https://www.microsoft.com/software-download/windows11'
