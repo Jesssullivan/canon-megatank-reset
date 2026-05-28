@@ -126,7 +126,14 @@ def summarize(pcap_path: Path | str) -> PcapSummary:
     """
     pcap = Path(pcap_path).expanduser().resolve()
     if not pcap.is_file():
-        raise FileNotFoundError(pcap)
+        # Convenience: if user passed `foo.pcapng` but only `foo.pcapng.gz`
+        # exists (because we gzip captures by convention), use the .gz.
+        # tshark reads gzipped pcapng files transparently.
+        gz_variant = pcap.with_suffix(pcap.suffix + ".gz")
+        if gz_variant.is_file():
+            pcap = gz_variant
+        else:
+            raise FileNotFoundError(pcap)
     tshark = _check_tshark()
 
     # 1) Extract per-packet USB transfer data as ek-json (one packet per line).
