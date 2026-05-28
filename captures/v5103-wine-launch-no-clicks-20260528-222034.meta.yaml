@@ -1,0 +1,120 @@
+# Sidecar metadata for v5103-wine-launch-no-clicks-20260528-222034.pcapng.gz
+#
+# First evidence-class pcap committed to canon-tool. Characterizes "what
+# Service Tool v5103 does on launch under Wine, without any user clicks."
+# Establishes the baseline for diffing future GUI-driven captures.
+
+file: 'v5103-wine-launch-no-clicks-20260528-222034.pcapng.gz'
+compressed_size_bytes: 1248                  # gzip -9; original 7124 bytes (82% reduction)
+uncompressed_size_bytes: 7124
+packet_count: 60
+duration_seconds: 2.611
+
+# ─── When + how ────────────────────────────────────────────────────
+
+captured_at: '2026-05-28T18:20:38Z'
+captured_by: 'jess@neo via ssh remote-driven (canon-tool R0 D1)'
+capture_method: |
+  Headless Wine launch on mbp-13 with no user interaction:
+    1. Xvfb on :99 (nix-profile xorg.xvfb)
+    2. ipp-usb systemctl stopped
+    3. tshark -i usbmon1 -w /tmp/<pcap> -F pcapng (root)
+    4. DISPLAY=:99 timeout 20 wine ServiceTool_v5103.exe
+    5. tshark stopped after Wine exit
+    6. chown jess + mv to ~/canon-tool-staging/captures/
+    7. ipp-usb restarted
+  Service Tool launched, enumerated USB, but received no clicks.
+duration_seconds_capture_total: 20
+
+# ─── The target printer at capture time ────────────────────────────
+
+captured_against:
+  uuid: '00000000-0000-1000-8000-00186501807c'
+  firmware_version: '1.070'
+  serial_number_string: '01807C'
+  ipp_make_and_model: 'Canon G6000 series'
+  cmd_set: ['BJRaster3', 'NCCe', 'IVEC', 'URF']
+  device_id_raw: 'MFG:Canon;CMD:BJRaster3,NCCe,IVEC,URF;SOJ:CHMP,CHMPu;MDL:G6000 series;CLS:PRINTER;DES:Canon G6000 series;VER:1.070;STA:10;PSE:KMDA10021;CID:CA_IVEC1TYPE4_IJP;'
+
+# ─── The Service Tool driver ─────────────────────────────────────────
+
+service_tool:
+  version: 'v5103'
+  exe_sha256: '98ca97b37a36a73d1a91630b8bde455b7dd109960073a0369295e34be6317c48'
+  bundled_runtime: false
+  source: 'github.com/shpgn/service_tool_canon'
+  drm: 'none'
+
+wine:
+  version: '11.0'
+  source: 'flathub:app/org.winehq.Wine/x86_64/stable-25.08'
+  invocation: 'DISPLAY=:99 timeout 20 wine ServiceTool_v5103.exe'
+  notable_log_lines:
+    - 'fixme:wineusb:add_usb_device Interface 2 has 2 alternate settings; using the first one.'
+    - 'fixme:wineusb:add_usb_device Interface 3 has 2 alternate settings; using the first one.'
+    - 'fixme:wineusb:query_id Unhandled ID query type 0x5. (x7)'
+
+# ─── What the operator did ──────────────────────────────────────────
+
+operation: 'service_tool_launch_baseline'    # NOT a maintenance op
+mode_selected: null
+gui_steps_taken:
+  - 'Wine launched Service Tool v5103.exe with DISPLAY=:99'
+  - 'NO USER INTERACTION — capture window: 20s'
+
+# ─── Outcome ────────────────────────────────────────────────────────
+
+result: 'baseline_enumeration_only'           # not a "success/fail" — diagnostic
+
+result_evidence: |
+  Service Tool launched, did standard USB descriptor reads:
+    - DEVICE descriptor (first 8 bytes, then full)
+    - CONFIGURATION descriptor (first 9 bytes, then full 156 bytes)
+    - Same sequence repeated on 2 other USB devices on the bus (1.5.0 + 1.23.0)
+  Read IEEE-1284 device-id via interface 1 endpoint 0x82 (4 bulk-IN events
+  at frames 38/39/53/54).
+
+  CRITICAL: NO bulk-OUT traffic to endpoint 0x03 (interface 4, the
+  vendor-specific maintenance channel). Service Tool v5103 did not send
+  any maintenance commands during the launch window. This is consistent
+  with v5103's model-list NOT including G6020 — Service Tool may have
+  recognized the device class but not bound interface 4 because the
+  attached printer didn't match a supported model.
+
+  Net: this pcap is a NEGATIVE-control baseline. Future captures driven
+  by GUI clicks (R1 cheap-spike runbook) will show ADDITIONAL bulk-OUT
+  traffic on endpoint 0x03 when the user clicks the Counter Clear button.
+  The diff between this baseline and the GUI-driven capture is the
+  maintenance command sequence we want.
+
+# ─── Byte-level summary ─────────────────────────────────────────────
+
+byte_summary:
+  bulk_out_endpoint_0x03_count: 0             # ZERO maintenance commands
+  bulk_out_endpoint_0x01_count: 0             # nothing on printer-class OUT either
+  bulk_in_endpoint_0x82_count: 4              # IEEE-1284 device-id reads
+  bulk_in_endpoint_0x86_count: 2              # async URB_INTERRUPT (not data)
+  bulk_in_endpoint_0x89_count: 1              # async URB_INTERRUPT (scan button?)
+  control_transfer_count: ~10                  # GET_DESCRIPTOR DEVICE/CONFIGURATION
+  total_packets: 60
+
+# ─── Pinned for regression replay ───────────────────────────────────
+# This pcap is a baseline — there's no replay-able sequence here. It's
+# used by the regression suite to confirm "Wine launch produces ONLY
+# enumeration traffic when no clicks happen." If a future Wine + ST
+# launch with no clicks produces DIFFERENT enumeration patterns, Wine
+# or Service Tool drifted — investigate.
+
+regression_role: 'negative-baseline'
+expected_match_strictness: 'shape-only'      # exact byte match not required;
+                                              # just confirm structure (no bulk-OUT 0x03)
+
+notes: |
+  First evidence-class pcap committed to canon-tool. The
+  ping-baseline-2026-05-28.yaml in this directory holds the matching
+  pyusb-derived descriptor read which agrees with this pcap on
+  interface 1 endpoint 0x82 device-id payload.
+
+  Next capture (R1 cheap-spike, in-lab) will be the SAME setup but with
+  user clicking through G3010 mode → Absorber Counter → Set. The diff
+  will reveal the absorber-reset opcode on endpoint 0x03.

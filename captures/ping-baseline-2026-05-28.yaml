@@ -1,0 +1,166 @@
+# canon-tool ping suite baseline — captured via safe-ping-probe.py
+# against the named test unit on mbp-13 with ipp-usb stopped.
+#
+# This is the documented-safe "is the printer still the printer" check
+# that every maintenance op must pass through before sending any
+# vendor-specific command. Any drift here triggers a hard refuse.
+#
+# Source: services/canon-tool/scripts/safe-ping-probe.py
+# Pinned by: printers/canon-g6020/maintenance.yaml :: ping_suite_baseline
+
+ping_suite_baseline:
+  captured_at: '2026-05-28T22:15:46Z'
+  captured_against:
+    uuid: '00000000-0000-1000-8000-00186501807c'
+    serial_sticker_pending: true                # confirm against back-of-printer
+
+  usb_descriptors:
+    vendor_id: '0x04a9'
+    product_id: '0x1865'
+    bcd_device: '0x0107'                        # USB device version (Canon's revision)
+    device_class: '0x00'                        # composite — class is per-interface
+    device_sub_class: '0x00'
+    device_protocol: '0x00'
+    manufacturer_string: 'Canon'
+    product_string: 'G6000 series'
+    serial_number_string: '01807C'              # matches last 6 hex of MAC-derived uuid
+
+  active_configuration:
+    num_interfaces: 6
+    self_powered: 1
+    max_power_mA: 2
+
+    # Each interface is a separate communication lane. Service Tool's
+    # maintenance commands almost certainly go over interface 4 (vendor-
+    # specific class 0xff, sub_class 0x01, protocol 0x01) — NOT the
+    # USB-IF printer-class interface 1 that ipp-usb / CUPS use.
+
+    interfaces:
+      - number: 0                               # vendor-specific, scan-button-event likely
+        alt_setting: 0
+        class: '0xff'
+        sub_class: '0x00'
+        protocol: '0xff'
+        endpoints:
+          - address: '0x07'
+            direction: 'OUT'
+            type: 'BULK'
+            max_packet_size: 512
+          - address: '0x88'
+            direction: 'IN'
+            type: 'BULK'
+            max_packet_size: 512
+          - address: '0x89'
+            direction: 'IN'
+            type: 'INTERRUPT'
+            max_packet_size: 64
+            interval: 11
+
+      - number: 1                               # USB-IF Printer Class (CUPS/IEEE-1284)
+        alt_setting: 0
+        class: '0x07'
+        sub_class: '0x01'
+        protocol: '0x02'                        # bidirectional
+        endpoints:
+          - address: '0x01'
+            direction: 'OUT'
+            type: 'BULK'
+            max_packet_size: 512
+          - address: '0x82'
+            direction: 'IN'
+            type: 'BULK'
+            max_packet_size: 512
+
+      - number: 2                               # IPP-USB (alt 1) — ipp-usb daemon binds here
+        alt_setting: 1
+        class: '0x07'
+        sub_class: '0x01'
+        protocol: '0x04'                        # IPP-over-USB
+        endpoints:
+          - address: '0x0c'
+            direction: 'OUT'
+            type: 'BULK'
+            max_packet_size: 512
+          - address: '0x8d'
+            direction: 'IN'
+            type: 'BULK'
+            max_packet_size: 512
+
+      - number: 3                               # IPP-USB second lane (alt 1)
+        alt_setting: 1
+        class: '0x07'
+        sub_class: '0x01'
+        protocol: '0x04'
+        endpoints:
+          - address: '0x0e'
+            direction: 'OUT'
+            type: 'BULK'
+            max_packet_size: 512
+          - address: '0x8f'
+            direction: 'IN'
+            type: 'BULK'
+            max_packet_size: 512
+
+      # ─── THE TARGET ──────────────────────────────────────────────
+      - number: 4                               # Canon vendor-specific MAINTENANCE channel
+        alt_setting: 0
+        class: '0xff'
+        sub_class: '0x01'
+        protocol: '0x01'                        # canon-maintenance per convention
+        endpoints:
+          - address: '0x03'
+            direction: 'OUT'
+            type: 'BULK'                        # ← absorber-reset bytes go HERE
+            max_packet_size: 512
+          - address: '0x86'
+            direction: 'IN'
+            type: 'BULK'                        # ← ACK responses come back HERE
+            max_packet_size: 512
+
+      - number: 5                               # second vendor-specific maintenance channel
+        alt_setting: 0                          # (could be scan-maintenance or backup)
+        class: '0xff'
+        sub_class: '0x01'
+        protocol: '0x01'
+        endpoints:
+          - address: '0x0a'
+            direction: 'OUT'
+            type: 'BULK'
+            max_packet_size: 512
+          - address: '0x8b'
+            direction: 'IN'
+            type: 'BULK'
+            max_packet_size: 512
+
+  ieee_1284_device_id:
+    interface: 1                                # read via USB-IF Printer Class
+    raw_length_bytes: 156
+    declared_length: 156
+    payload: 'MFG:Canon;CMD:BJRaster3,NCCe,IVEC;SOJ:CHMP,CHMPu;MDL:G6000 series;CLS:PRINTER;DES:Canon G6000 series;VER:1.070;STA:10;PSE:KMDA10021;CID:CA_IVEC1TYPE4_IJP;'
+    parsed_cmd_set:                             # NOTE: URF is absent here but present in IPP attrs
+      - 'BJRaster3'
+      - 'NCCe'
+      - 'IVEC'
+    note: |
+      The raw IEEE-1284 response over interface 1 omits 'URF' which is
+      visible via IPP (ipptool get-printer-attributes). URF is added by
+      the ipp-usb / Apple AirPrint layer ABOVE the raw printer protocol.
+      The maintenance channel (interface 4) almost certainly speaks
+      BJRaster3 / NCCe / IVEC at the byte level — not URF.
+
+# ─── Strategic implications for Phase R1 / R2 ────────────────────────────
+#
+# When we capture Service Tool's USB traffic via tshark, the bytes we
+# care about MOST will be on:
+#   - usbmon1 (bus 001)
+#   - device 022 (the G6020)
+#   - endpoint 0x03 (bulk OUT to interface 4)  ← commands
+#   - endpoint 0x86 (bulk IN from interface 4) ← responses
+#
+# Filter expression for tshark / wireshark:
+#   tshark -r capture.pcapng \
+#     -Y "usb.transfer_type == 0x03 and (usb.endpoint_address == 0x03 or usb.endpoint_address == 0x86)" \
+#     -T fields -e usb.endpoint_address -e usb.capdata
+#
+# This separates the maintenance traffic from all the print + scan +
+# ipp-usb noise the printer also generates.
