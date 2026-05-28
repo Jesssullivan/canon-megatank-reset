@@ -1,0 +1,14 @@
+name: canon-g6020
+model: Canon PIXMA G6020 (MegaTank G-series)
+dispatch: cups
+summary: |
+  Office MFP driven via CUPS over ipp-usb (queue `office`). Maintenance
+  ops (absorber counter reset, EEPROM dump, ping suite) go through the
+  canon-tool service — see maintenance.yaml for the protocol fingerprint
+  and the named test unit serial.
+profiles_sha256: {}
+notes:
+  - 'Print + scan path is CUPS / sane-airscan via ipp-usb (loopback :60001) — NOT this service.'
+  - 'Maintenance ops are walk-up + physical-button gated. Tailnet users are refused.'
+  - 'USB 04a9:1865 — udev rule required so the canon-tool service can open the bulk endpoint without root.'
+  - 'See docs/adr/0006-canon-tool-reverse-engineering.md for the RE methodology.'

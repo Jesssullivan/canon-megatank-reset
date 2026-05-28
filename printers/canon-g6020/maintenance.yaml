@@ -1,0 +1,154 @@
+# Canon G6020 maintenance SSOT
+#
+# This file is the single source of truth for canon-tool reverse-engineering
+# evidence + safety gates per physical unit. The protocol fingerprint must
+# match the runtime printer fingerprint before any write op is permitted.
+#
+# Schema is enforced by services/canon-tool/src/printstack_canon/fingerprint.py.
+
+# ─── Identity ──────────────────────────────────────────────────────────────────
+
+model_family: canon-g6020
+usb_id: '04a9:1865'                          # idVendor:idProduct (lsusb format)
+ipp_make_and_model: 'Canon G6000 series'     # as reported by ipp-usb at :60001
+
+# ─── Test unit (the broken-5B00 G6020 on mbp-13) ───────────────────────────────
+#
+# This is the ONLY unit that may receive an EEPROM write until the protocol
+# is locked. All other G6020s in the fleet are refused by the service.
+
+test_unit:
+  uuid: '00000000-0000-1000-8000-00186501807c'  # IPP printer-uuid (NIC-MAC-derived)
+  mac_suffix: '00:18:65:01:80:7c'               # trailing 12 hex of uuid, formatted
+  serial_sticker: null                          # TODO: capture from physical back-panel sticker
+  attached_to_host: mbp-13
+  initial_state: 'stopped — marker-waste-full-error (5B00)'
+  acquired: '2026-05-28'
+
+# ─── Protocol fingerprint (locked) ─────────────────────────────────────────────
+#
+# Captured via `/usr/bin/ipptool -tv ipp://localhost:60001/ipp/print
+# get-printer-attributes.test` on 2026-05-28 against the test unit.
+# Any drift here aborts ops (services/canon-tool/src/printstack_canon/fingerprint.py).
+
+protocol_fingerprint:
+  printer_firmware_version: '1.070'
+  printer_device_id: 'MFG:Canon;CMD:BJRaster3,NCCe,IVEC,URF;SOJ:CHMP,CHMPu;MDL:G6000 series;CLS:PRINTER;DES:Canon G6000 series;VER:1.070;STA:10;PSE:KMDA10021;CID:CA_IVEC1TYPE4_IJP;URF:V1.4,CP1,PQ4-5,RS600,SRGB24,W8,OB9,OFU0,DM3,IS1-18;'
+  cmd_set:                                    # parsed from CMD: field of device-id
+    - BJRaster3                               # legacy Canon print raster
+    - NCCe                                    # Network Canon Configuration ext (likely maintenance carrier)
+    - IVEC                                    # Canon IVEC (newer; PSE:KMDA10021, CID:CA_IVEC1TYPE4_IJP)
+    - URF                                     # Apple Unified Raster (AirPrint)
+
+last_verified_firmware: '1.070'               # ops are blocked if runtime fw drifts from this
+last_verified_at: null                        # ISO8601 timestamp of last successful ping+op cycle
+
+# ─── Supported operations ─────────────────────────────────────────────────────
+#
+# Empty until evidence lands. Each op gets:
+#   - `name`              — operator-facing
+#   - `risk`              — read-only | write-eeprom | mechanical
+#   - `requires`          — list of pre-flight ops (ping suite by default)
+#   - `byte_sequence`     — null until R1/R2/R3 captures something usable
+#   - `captured_at`       — ISO8601 + source (wine|qemu|ghidra)
+#   - `last_validated_at` — when this op was last successfully replayed against the named test unit
+
+supported: []
+
+# ─── Safety budget ────────────────────────────────────────────────────────────
+
+write_budget:
+  cap: 50                                     # max EEPROM writes against test_unit before manual review
+  consumed: 0                                 # incremented by services/canon-tool/src/printstack_canon/lockfile.py
+  refill_policy: manual                       # must be manually edited + audited; no auto-reset
+
+# ─── Rollback evidence ────────────────────────────────────────────────────────
+
+eeprom_baseline_dump: null                    # path to pre-flight EEPROM dump (relative to /var/lib/canon-tool/)
+eeprom_baseline_sha256: null                  # sha256 of baseline dump
+eeprom_baseline_captured_at: null
+
+# ─── Service Tool reference (versions known to cover G6020) ───────────────────
+#
+# We do not redistribute these binaries — this is documentation of what we've
+# tested against. Acquired via shpgn/service_tool_canon (older) + other sources
+# (newer). All SHAs MUST be pinned before a binary is used for capture.
+
+service_tool_versions:
+  v4718:                                      # shpgn tag: ServiceTool
+    zip_sha256: '8989ca94e29573a7c62fd8cb741b29b3d19a751dda86f7638332d29ed4b7fb1f'
+    exe_sha256: 'cd487e10351ab61a34ef1fa94d6b1836a0bef8078bc0c299d336c69080263bec'
+    zip_size_bytes: 18769174
+    exe_size_bytes: 22929506
+    aes_password: '1'                         # ZIP is AES-256; password literally '1' (per release notes)
+    bundles_runtime: true                     # ships MFC40/42 + MSVCRTD; older system compat
+    built: '2017-04-29'
+    supports_g6020: false                     # strings probe: 1 G-model ref, 13 PIXMA — pre-G6020
+    notes: 'Old build — predates G6020 (2019). Useful only for cross-version protocol diffs.'
+  v4906:                                      # shpgn tag: ServiceTool_v4906
+    zip_sha256: 'd43dcd8da39cf0539d61ed36ffc7ee3302d1a18d39de7673e9e5da5d02a97a00'
+    exe_sha256: 'ff3314edb763b7a670d2a2eb330fbdd633727d8cdb7e53534075d9c32eb8e991'
+    zip_size_bytes: 258922
+    exe_size_bytes: 633856
+    aes_password: '1'
+    bundles_runtime: false
+    built: '2017-11-01'
+    supports_g6020: false                     # strings probe: 0 G-model refs, 0 PIXMA refs
+    notes: 'Slim 2017 build. Suspiciously few model strings — may use external resources for model list.'
+  v5103:                                      # shpgn tag: ServiceTool_v5103 (latest in shpgn)
+    zip_sha256: '534cf5ef8c461212d23e370db390917753e5058dd30edb87479340e19b410cac'
+    exe_sha256: '98ca97b37a36a73d1a91630b8bde455b7dd109960073a0369295e34be6317c48'
+    zip_size_bytes: 262590
+    exe_size_bytes: 652288
+    aes_password: '1'
+    bundles_runtime: false
+    built: '2022-10-11'
+    supports_g6020: false                     # G-series covered: G1000/G2000/G3000/G3010/G4010 ONLY
+    g_series_supported:                       # full G-series list (from strings probe 2026-05-28)
+      - 'G1000 series'
+      - 'G2000 series'
+      - 'G3000 series'
+      - 'G3010 series'
+      - 'G4010 series'
+    notes: |
+      Does NOT support G6020 by model name. HOWEVER — contains MFC classes:
+      CEEPROMDumpSave, CEEPROMHeadDumpSave, CEEPROMInfoDlg, "EEPROM Print" —
+      the protocol byte sequence for absorber reset is likely shared across the
+      G-series chipset family. Worth a Phase R1 spike: connect G6020, run v5103
+      in G3010-mode, check if the reset path takes (cheap test, high upside).
+      Also primary Ghidra target — class hierarchy reveals the dispatch shape.
+  v5302:                                      # target version — supports G6020 explicitly
+    zip_sha256: null
+    exe_sha256: null
+    supports_g6020: target
+    notes: |
+      datvietcomputer/Canon-service-tool- hosts a "TOOL0006V6310.exe" that is
+      ACTUALLY v5302 underneath — `DynSmartKey.txt` in that bundle reads
+      `Company: ST5302`. But that bundle is wrapped with SmartKey commercial DRM
+      (registry-key activation via license.reg, runtime check). DRM likely
+      blocks Wine. Need a clean v5302 from elsewhere — extract from Canon's
+      Windows driver installer OR source from wicresetconnect / paid reseller.
+      Do not trust TOOL0006V6310.exe for static analysis (DRM wrapper obfuscates
+      strings — 42k 8-bit and 21 UTF-16 strings yet zero G-series matches).
+  v6310_datvietcomputer:                      # NOT a Canon version — Vietnamese repack of v5302
+    zip_sha256: 'cce3d078d10a07cfdfba0c918da50292b020d04bae489913d92bb952552418c0'
+    exe_sha256: '73e49e1f0684acb7fcc76f0b14671dfce3e5ecc46aa98414644011ead74970fd'
+    zip_size_bytes: 4974235
+    exe_size_bytes: 5131264
+    underlying_canon_version: 'v5302'         # per DynSmartKey.txt Company field
+    repack_source: 'github.com/datvietcomputer/Canon-service-tool-'
+    drm: 'SmartKey (commercial; needs license.reg registry import)'
+    supports_g6020: untrusted                 # may work but DRM + obfuscation makes it unreliable
+    notes: 'Acquired 2026-05-28; NOT for static analysis; keep as runtime-only fallback if clean v5302 unobtainable.'
+  v5605:                                      # target version — not in shpgn; needs alt source
+    sha256: null
+    bundles_runtime: false
+    supports_g6020: target
+  v5610:                                      # target version — not in shpgn; needs alt source
+    sha256: null
+    bundles_runtime: false
+    supports_g6020: target
+
+staging_locations:
+  neo: '/tmp/canon-tool-staging/'
+  mbp_13: '~/canon-tool-staging/'
