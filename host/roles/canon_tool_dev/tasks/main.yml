@@ -106,9 +106,18 @@
   changed_when: '"Installing" in wine_install.stdout or "Updating" in wine_install.stdout'
   tags: [canon-tool-dev, wine]
 
-- name: 'flatpak: grant Wine access to /dev/bus/usb (for Service Tool USB capture)'
-  ansible.builtin.command: 'flatpak override org.winehq.Wine --filesystem=/dev/bus/usb --device=all'
-  changed_when: true                      # idempotent on Flatpak side; reapply harmless
+- name: 'flatpak: grant Wine USB device access (--device=all)'
+  # /dev/bus/usb filesystem override is REJECTED by Flatpak ("/dev is reserved")
+  # and is redundant — `--device=all` already grants USB access via the device
+  # portal.
+  ansible.builtin.command: 'flatpak override org.winehq.Wine --device=all'
+  changed_when: true                      # idempotent on Flatpak side
+  tags: [canon-tool-dev, wine]
+
+- name: 'flatpak: undo any pre-existing /dev/bus/usb filesystem override (silence noise)'
+  ansible.builtin.command: 'flatpak override org.winehq.Wine --nofilesystem=/dev/bus/usb'
+  changed_when: true
+  failed_when: false                      # OK if there was nothing to undo
   tags: [canon-tool-dev, wine]
 
 - name: 'flatpak: grant Wine access to {{ canon_tool_dev_capture_user }} home staging dir'
