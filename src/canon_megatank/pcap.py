@@ -145,7 +145,7 @@ def summarize(pcap_path: Path | str) -> PcapSummary:
         "-e", "frame.time_relative",
         "-e", "usb.transfer_type",
         "-e", "usb.endpoint_address.direction",
-        "-e", "usb.endpoint_address.number",
+        "-e", "usb.endpoint_address",            # FULL byte (e.g. 0x82 = IN endpoint 2)
         "-e", "usb.capdata",
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -185,7 +185,9 @@ def summarize(pcap_path: Path | str) -> PcapSummary:
         # 0 = OUT (host->device), 1 = IN (device->host).
         direction = "OUT" if dir_raw in ("0", "0x0") else "IN"
 
-        ep_raw = (layers.get("usb_endpoint_address_number") or ["0"])[0]
+        # usb.endpoint_address is the FULL byte: 0x80 bit = direction (1=IN),
+        # low 4 bits = endpoint number. So bulk IN ep#2 = 0x82; bulk OUT ep#3 = 0x03.
+        ep_raw = (layers.get("usb_endpoint_address") or ["0"])[0]
         try:
             endpoint = int(ep_raw, 0)
         except ValueError:
