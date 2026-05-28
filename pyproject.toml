@@ -19,7 +19,7 @@ dev = [
 
 [project.scripts]
 printstack-canon = "printstack_canon.main:run"
-printstack-canon-cli = "printstack_canon.cli:main"
+printstack-canon-pcap = "printstack_canon.pcap:main"
 
 [build-system]
 requires = ["hatchling"]

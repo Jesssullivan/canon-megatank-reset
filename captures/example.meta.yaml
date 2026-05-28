@@ -1,0 +1,68 @@
+# Example sidecar metadata for a captured pcap.
+# Every committed .pcapng.gz needs a matching .meta.yaml. The fingerprint
+# (printer firmware + cmd_set) is what gates regression replays — drift
+# refuses the replay unless --accept-firmware-drift is set by hand.
+
+# File this metadata describes (relative to this directory).
+file: 'absorber-reset-wine-v5103-g3010mode-2026-05-28T23-30-00Z.pcapng.gz'
+
+# ─── When + how the capture was taken ──────────────────────────────
+
+captured_at: '2026-05-28T23:30:00Z'
+captured_by: 'jess@neo via ssh to mbp-13'
+capture_method: 'tshark -i usbmon1'         # or 'USBPcap inside Win11 VM'
+duration_seconds: 12
+
+# ─── The target printer at capture time ────────────────────────────
+
+captured_against:
+  uuid: '00000000-0000-1000-8000-00186501807c'   # test_unit per maintenance.yaml
+  firmware_version: '1.070'
+  device_id: 'MFG:Canon;CMD:BJRaster3,NCCe,IVEC,URF;SOJ:CHMP,CHMPu;MDL:G6000 series;...'
+  cmd_set: ['BJRaster3', 'NCCe', 'IVEC', 'URF']
+
+# ─── The Service Tool used to drive the capture ─────────────────────
+
+service_tool:
+  version: 'v5103'                          # canonical Canon version label
+  exe_sha256: '98ca97b37a36a73d1a91630b8bde455b7dd109960073a0369295e34be6317c48'
+  bundled_runtime: false                    # no MFC42 etc bundled
+  source: 'github.com/shpgn/service_tool_canon'
+  drm: 'none'                               # vs 'SmartKey' for v6310-datvietcomputer
+
+# ─── What the operator did ──────────────────────────────────────────
+
+operation: 'absorber_reset'                 # matches maintenance.yaml::supported key
+mode_selected: 'G3010 series'               # what was selected in Service Tool's UI
+gui_steps_taken:
+  - 'Selected model: G3010 series'
+  - 'Tab: Cleaning'
+  - 'Clicked "Ink Absorber Counter" → "Set"'
+
+# ─── Outcome (the critical field) ───────────────────────────────────
+
+result: 'success'                           # success | rejected | no_response | mechanical_fault | unknown
+result_evidence: |
+  After clicking Set: Service Tool showed "OK" dialog. IPP poll
+  immediately after (ipptool get-printer-attributes.test) reported
+  printer-state=idle and no marker-waste-full-error in printer-alert.
+  Power-cycled the printer; 5B00 did not return on boot.
+
+# ─── For successful captures: the byte sequence pin ─────────────────
+# Filled by the analyzer after running canon-analyze on the pcap.
+# These bytes are what `ops.py::absorber_reset` will replay via pyusb.
+
+extracted_byte_sequence:
+  bulk_out:
+    - hex: '1B5B4B0200001F0000'             # placeholder — analyzer will fill
+      annotation: 'NCCe sub-protocol header + opcode 0x1F (clear absorber)'
+  bulk_in:
+    - hex: '1B5B4B0000'                     # placeholder
+      annotation: 'ACK'
+
+# ─── Free-form notes ────────────────────────────────────────────────
+
+notes: |
+  First successful clear of 5B00 on a G6020 using v5103 in G3010 mode.
+  This confirms the chipset-family-shared-protocol hypothesis for the
+  G-series MegaTank line.
