@@ -99,6 +99,38 @@ def test_bulk_in_on_endpoint_82_is_ieee_1284_traffic() -> None:
     )
 
 
+@needs_tshark
+def test_identify_canon_headers_on_launch_fixture() -> None:
+    """The negative-control fixture has no maintenance bytes — so the
+    Canon header heuristic should report an empty list. Confirms the
+    heuristic isn't false-positive matching on enumeration descriptors."""
+    summary = summarize(WINE_LAUNCH_FIXTURE)
+    headers = summary.identify_canon_headers()
+    assert headers == [], (
+        f"unexpected Canon headers in negative-control fixture: {headers}. "
+        "The launch-no-clicks pcap should have no protocol payloads at all."
+    )
+
+
+@needs_tshark
+def test_summary_dataclass_has_consistent_counts() -> None:
+    """Sanity invariant: sum of all bucket lengths equals total_packets
+    only for USB transfers — but every classified transfer must land in
+    exactly one bucket."""
+    summary = summarize(WINE_LAUNCH_FIXTURE)
+    bucketed = (
+        len(summary.bulk_out)
+        + len(summary.bulk_in)
+        + len(summary.control)
+        + len(summary.other)
+    )
+    # Every USB transfer the analyzer saw should be in one of the four
+    # buckets. total_packets counts only those with usb_transfer_type set.
+    assert bucketed == summary.total_packets, (
+        f"bucketing leak: {bucketed} bucketed != {summary.total_packets} total"
+    )
+
+
 def test_tshark_missing_raises_clean_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """Regression: if tshark isn't installed, surface a clean
     TsharkUnavailableError with actionable install hints."""
