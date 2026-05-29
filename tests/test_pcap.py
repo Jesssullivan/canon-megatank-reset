@@ -30,6 +30,12 @@ WINE_LAUNCH_FIXTURE = (
     / "v5103-wine-launch-no-clicks-20260528-222034.pcapng"
 )
 
+IPP_USB_BASELINE_FIXTURE = (
+    Path(__file__).parent.parent
+    / "captures"
+    / "ipp-usb-baseline-20260529-001127.pcapng"
+)
+
 
 needs_tshark = pytest.mark.skipif(
     which("tshark") is None,
@@ -109,6 +115,41 @@ def test_identify_canon_headers_on_launch_fixture() -> None:
     assert headers == [], (
         f"unexpected Canon headers in negative-control fixture: {headers}. "
         "The launch-no-clicks pcap should have no protocol payloads at all."
+    )
+
+
+@needs_tshark
+def test_ipp_usb_baseline_has_http_framing_on_bulk_out_0x0c() -> None:
+    """The IPP-USB baseline fixture should have bulk-OUT traffic on
+    endpoint 0x0c (interface 2 IPP-over-USB) starting with the literal
+    ASCII bytes for 'POST /ipp/print HTTP/1.1'. Confirms that IPP-over-USB
+    is HTTP-framed (the dissecting hypothesis from analysis)."""
+    summary = summarize(IPP_USB_BASELINE_FIXTURE)
+    bulk_out_0c = [t for t in summary.bulk_out if t.endpoint == 0x0c]
+    assert len(bulk_out_0c) > 0, "no bulk-OUT on endpoint 0x0c in IPP-USB baseline"
+    # "POST" = 0x50 0x4f 0x53 0x54 in ASCII
+    first = bulk_out_0c[0].payload_hex
+    assert first.startswith("504f5354"), (
+        f"expected 'POST' prefix on bulk-OUT 0x0c, got {first[:16]}..."
+    )
+
+
+@needs_tshark
+def test_ipp_usb_baseline_has_zero_maintenance_endpoint_traffic() -> None:
+    """The IPP-USB baseline should have ZERO traffic on the Service Tool
+    maintenance endpoints (0x03 OUT, 0x86 IN). If this fires, either the
+    G6020 spontaneously started talking maintenance protocol (concerning)
+    or the fixture was mislabeled."""
+    summary = summarize(IPP_USB_BASELINE_FIXTURE)
+    maintenance_out = [t for t in summary.bulk_out if t.endpoint == 0x03]
+    maintenance_in = [t for t in summary.bulk_in if t.endpoint == 0x86]
+    assert maintenance_out == [], (
+        f"unexpected maintenance bulk-OUT in IPP-USB baseline: {maintenance_out}"
+    )
+    # 0x86 has 2 INTERRUPT events in launch baseline (async); accept
+    # the same on this fixture if they're INTERRUPT not bulk data.
+    assert all(t.payload_length == 0 for t in maintenance_in), (
+        f"unexpected maintenance bulk-IN data in IPP-USB baseline: {maintenance_in}"
     )
 
 
