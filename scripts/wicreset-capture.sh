@@ -88,7 +88,8 @@ cat <<MSG
 ╔════════════════════════════════════════════════════════════════════════╗
 ║  READY — tshark is capturing.                                          ║
 ║                                                                        ║
-║  In the WICReset GUI on this host (separate terminal / display):       ║
+║  Launch WICReset under Wine (separate terminal w/ display or ssh -X):   ║
+║    wine ~/canon-tool-staging/wicreset/PrinterPotty_WICReset.exe          ║
 ║    1. Select the Canon G6020 via USB connection                        ║
 ${ACTION_BLOCK}
 ║                                                                        ║

@@ -13,15 +13,28 @@ hypothesis, no firmware needed. Those bytes replay across the identical fleet.
 
 ## What WICReset is
 
-WIC Reset Utility / "WIC Reset Connect" (wic.support / wicreset.com) — commercial
-waste-ink-counter resetter. Native **Linux / macOS / Windows** builds. Talks to
-the printer **directly over USB** (select printer → USB). Works while the printer
-shows **5B00**. `Read waste counters` is **free**; `Reset` consumes a **single-use
-key** (one printer, once) and takes ~2 min.
+WIC Reset Utility (wicreset.com → operated by OctoInkjet; built by PrinterPotty)
+— commercial waste-ink-counter resetter. Talks to the printer **directly over
+USB** (select printer → USB). Works while the printer shows **5B00**.
+`Read waste counters` is **free**; `Reset` consumes a **single-use key** (one
+printer, once) and takes ~2 min.
 
-- Key (OctoInkjet ISC69146): stored by operator — **not committed** to the repo.
+- **No native Linux binary.** `wicreset.com/download` → octoink.co.uk; the Linux
+  entry only meta-refreshes to a forum thread. So on Linux we run the **Windows
+  build under Wine** — reusing the exact Flathub Wine + USB-passthrough rig from
+  the v5103 work (`/usr/local/bin/wine`, `--device=all` override).
+- Staged on mbp-13: `~/canon-tool-staging/wicreset/PrinterPotty_WICReset.exe`
+  (3,085,758 bytes, PE32 32-bit GUI,
+  `sha256 e5a7929fa9992de081dbb0f798ed758983fc3445c0bbc91a9eafb91fdaadf9ec`,
+  from `printerpotty.com/_dlds/wicreset/` via octoink `getwicreset`, 2026-05-29).
+- Launch: `wine ~/canon-tool-staging/wicreset/PrinterPotty_WICReset.exe`
+- Key (OctoInkjet ISC69146): held by operator — **not committed** to the repo.
 - The same EEPROM channel WICReset uses is our interface-4 maintenance lane
   (bulk OUT `0x03` / bulk IN `0x86`), so usbmon sees the exact reset transaction.
+
+> Phase 1 is also the **first real test of Wine USB passthrough** for a maintenance
+> op (the v5103 negative-control had zero bulk-OUT). If WICReset can't see the
+> printer under Wine, that surfaces immediately — for free, before any key spend.
 
 ## Sequencing (IMPORTANT — physical safety)
 
