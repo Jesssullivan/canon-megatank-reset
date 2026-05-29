@@ -299,3 +299,33 @@ through the device object's vtable, not a direct CALL. Pushing through it by
 resolving the vtable (`vtable_probe.py`) to identify the transport class +
 its public send method, then walking that method's call sites into the
 `0x40xxxx` dialog handler that owns the absorber controls. _(continued below)_
+
+## Finding D — dialog control IDs (canonical MFC route to the handler)
+
+Parsed the RT_DIALOG templates (`parse_dialogs.py`). The service panels are
+**dialog 133** (compact models) and **dialog 137** (full models — more
+counters). The absorber group, verbatim captions:
+
+```
+dlg 137:  " Ink Absorber Counter"  (groupbox)
+          "Absorber : "  "Counter Value(%) : "
+          "Set"  id=1100 (0x44c)        <-- absorber Set (adjacent)
+          ...also: "Wetting Liquid Counter", "Head Management Sensor Counter",
+                   "Clear Platen Pump Counter", each w/ its own Counter Value + Set
+          separate group: "Clear Ink Counter"
+dlg 133:  " Ink Absorber Counter"  + "Counter Value(%) : "
+          "Set" candidates id=1015 (0x3f7) / 1020 (0x3fc) / 1032 (0x408)
+          separate group: " Clear Ink Counter "
+```
+
+Other maintenance buttons (dlg 133): Test Print=1006, EEPROM=1008,
+Nozzle Check=1012, Deep Cleaning=1014, Auto Cleaning=1037, Cleaning=1055,
+EEPROM Save=1036, Cleaning Bk=1057, Cleaning Cl=1058.
+
+MFC dispatches each button via `ON_COMMAND(id, handler)` in the class message
+map. So: scan `.rdata` for `AFX_MSGMAP_ENTRY` (nMessage=WM_COMMAND 0x111) with
+`nID` == the absorber Set ID → `pfn` handler → decompile → read the `(cmd,arg)`
+it passes to the IOCTL primitive. (`find_msgmap.py`, in progress.)
+
+Note: there is BOTH an "Ink Absorber Counter" (read/set the % value) and a
+"Clear Ink Counter" operation — the 5B00 reset is the absorber counter path.
