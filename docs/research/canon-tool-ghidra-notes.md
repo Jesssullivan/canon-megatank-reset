@@ -200,3 +200,102 @@ the control-ID → handler key that makes (2) fast.
 See `services/canon-tool/ghidra/README.md`. Raw dumps (gitignored) at
 `.ghidra-work/out/`: `v5103-ghidra-report.md`, `v5103-strings.txt`,
 `v5103-string-hits.txt`.
+
+---
+
+# TIN-1697 — the trace (in progress, 2026-05-29)
+
+Goal: recover the absorber-reset command bytes. Approach is the plan from
+TIN-1695: resource pass → USB call-site decompilation → join handler to write.
+
+## Tooling added (tracked in `services/canon-tool/ghidra/`)
+
+| script | what |
+|---|---|
+| `trace_usb.py` | rank + decompile functions that touch WriteFile/ReadFile/DeviceIoControl/CreateFileA/SetupDi* or the Usbscan / EEPROM / CEEPROM anchors |
+| `trace_callers.py` | decompile callers of a target function (depth 1/2) |
+| `vtable_probe.py` | resolve the C++ vtable that holds a target method; dump the class method table + constructors (gets past virtual-dispatch indirection) |
+
+Raw outputs (gitignored): `.ghidra-work/out/v5103-usb-trace.c`,
+`v5103-ioctl-callers.c`, `v5103-vtable.txt`, `v5103-rsrc-{strings,dialogs}.txt`.
+
+## Finding A — the command wire format (HIGH CONFIDENCE)
+
+`FUN_004302c0` is the **single** `DeviceIoControl` call site in the binary —
+the low-level "issue one USB command" primitive. Decompiled, it is
+unambiguous:
+
+```c
+// this+0x10 = HANDLE to \\.\UsbscanN ; this+0x54 = OVERLAPPED ; this+0x64 = event
+FUN_004302c0(this, BYTE cmd, WORD arg, SIZE_T mode, void* buf, DWORD len, DWORD* outlen, DWORD timeout)
+  if (mode == 0) {                     // SEND
+     ioctl = 0x220038;  n = len + 3;
+     hdr = GlobalAlloc(n);
+     hdr[0] = cmd;
+     hdr[1] = (arg >> 8) & 0xff;        // big-endian
+     hdr[2] = arg & 0xff;
+     memcpy(hdr+3, buf, len);           // payload after 3-byte header
+     DeviceIoControl(h, 0x220038, hdr, len+3, NULL, 0, outlen, ovl);
+  } else {                             // RECEIVE
+     ioctl = 0x22003c;
+     hdr = GlobalAlloc(3); hdr[0]=cmd; hdr[1]=arg>>8; hdr[2]=arg&0xff;
+     DeviceIoControl(h, 0x22003c, hdr, 3, buf, len, outlen, ovl);
+  }
+```
+
+**Wire frame for every maintenance command:**
+
+```
+[ cmd : u8 ] [ arg_hi : u8 ] [ arg_lo : u8 ] [ payload : len bytes ]
+```
+
+- `0x220038` = SEND (host→printer), header+payload.
+- `0x22003c` = RECEIVE (printer→host), 3-byte header out, response read back.
+- These are usbscan.sys custom IOCTLs (FILE_DEVICE 0x22; functions 0x0e/0x0f, METHOD_BUFFERED).
+
+**Linux mapping:** usbscan's SEND IOCTL = a bulk-OUT of `hdr` (the
+3-byte header + payload) to the printer. So a pyusb replay is literally
+`ep_out.write(bytes([cmd, arg>>8, arg&0xff]) + payload)` on **interface 4
+endpoint 0x03**. RECEIVE = write the 3-byte header then `ep_in.read()` on
+`0x86`. This is the exact contract `replay.py` will implement in Phase A.
+
+## Finding B — USB transport functions (the `0x43xxxx` library layer)
+
+| func | role |
+|---|---|
+| `FUN_00432590` | enumerate + open by `\\.\Usbscan%d`; filters on `"Canon"` vendor string; uses virtual methods of a device object |
+| `FUN_004302c0` | the IOCTL primitive above |
+| `FUN_00430d30` | secondary: `CreateFileA(GENERIC_WRITE)` + `WriteFile` of a text string (print/port path, len>0x20) |
+| `FUN_00430df0` | secondary: `CreateFileA(GENERIC_READ)` + `ReadFile` (file/EEPROM-dump read) |
+| `FUN_00432930` | `SetupDiGetClassDevsA` + `EnumDeviceInterfaces` + `GetDeviceInterfaceDetailA` device discovery |
+
+App-specific Canon code lives in `0x401000–0x40e000`; the USB/CRT library
+layer is `0x430000+`. The absorber-reset handler is in the app range and
+reaches the IOCTL primitive through the device object's vtable.
+
+## Finding C — operation inventory (from RT_DIALOG captions, via `wrestool --raw`)
+
+The maintenance operations are dialog control captions in `.rsrc` (NOT in the
+1223 plain strings — those are MFC framework boilerplate). Recovered:
+
+```
+Ink Absorber Counter   Counter Value   Set   Reset      <-- the target
+Cleaning   Deep Cleaning   Cleaning OFF   Cleaning Bk   Cleaning Cl   Auto Cleaning
+Nozzle Check   Test Print   EEPROM   EEPROM Save
+EEPROM Information   EEPROM Dump Information   EEPROM Head Dump Information
+Set Time   Set Destination   Paper Source   Media Type   Media Size
+```
+
+App banner: `Service Mode Tool Version 5.103  Copyright (C) 2007-2017 Canon Inc.`
+
+So the absorber reset is the **"Ink Absorber Counter" group with a "Counter
+Value" field + "Set" button** (one of 15 "Set" buttons in the UI).
+
+## Blocker + current approach
+
+The `(cmd, arg)` for the absorber "Set" is passed at a **C++ virtual call
+site** — `getCallingFunctions(FUN_004302c0)` returns 0 because dispatch goes
+through the device object's vtable, not a direct CALL. Pushing through it by
+resolving the vtable (`vtable_probe.py`) to identify the transport class +
+its public send method, then walking that method's call sites into the
+`0x40xxxx` dialog handler that owns the absorber controls. _(continued below)_
