@@ -184,6 +184,21 @@
     validate: 'visudo -cf %s'
   tags: [canon-tool-dev, sudo]
 
+# ─── Headless GUI automation (Xvfb + xdotool + scrot) ───────────────────────
+# RE instrumentation: drive + screenshot the WICReset Wine GUI under Xvfb with
+# no physical display (the free-read capture, T1). Xvfb is in the nix profile.
+
+- name: 'dnf: install headless GUI automation tooling (xdotool + scrot, EPEL)'
+  ansible.builtin.dnf:
+    name:
+      - xdotool
+      - scrot
+    state: present
+    enablerepo: epel
+    disablerepo: tailscale-stable
+  when: canon_tool_dev_install_gui_automation | bool
+  tags: [canon-tool-dev, gui]
+
 - name: 'note: log out + back in for new group membership to take effect'
   ansible.builtin.debug:
     msg: |

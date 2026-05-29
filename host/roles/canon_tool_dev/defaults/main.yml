@@ -28,3 +28,9 @@ canon_tool_dev_udev_vendor_ids:
 # capture is unprivileged via the usbmon group + dumpcap capabilities, so the
 # whole capture can be driven headlessly as the capture user.
 canon_tool_dev_sudoers_file: canon-capture
+
+# Headless GUI automation tooling (xdotool + scrot, from EPEL). Lets the
+# WICReset GUI (a Wine app) be driven + screenshotted under Xvfb with no
+# physical display — RE instrumentation for the free-read capture (T1).
+# Xvfb itself comes from the user's nix profile.
+canon_tool_dev_install_gui_automation: true
