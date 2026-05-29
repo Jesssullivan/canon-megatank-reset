@@ -73,6 +73,47 @@ class PcapSummary:
         the printer's response sequence."""
         return [t.payload_hex for t in self.bulk_in if t.payload_hex]
 
+    # ─── IPP-USB noise filtering ────────────────────────────────────────────
+    # The G6020's IPP-USB interfaces (2 + 3) carry HTTP-framed IPP traffic
+    # any time CUPS / ipp-usb is running. For R1 / R2 maintenance captures
+    # we want to filter that out and see ONLY the vendor-specific bytes.
+    #
+    # Confirmed from ping-baseline-2026-05-28.yaml:
+    #   interface 2 alt 1: IPP-USB — bulk OUT 0x0c, bulk IN 0x8d
+    #   interface 3 alt 1: IPP-USB — bulk OUT 0x0e, bulk IN 0x8f
+
+    IPP_USB_ENDPOINTS_OUT: frozenset[int] = frozenset({0x0C, 0x0E})
+    IPP_USB_ENDPOINTS_IN: frozenset[int] = frozenset({0x8D, 0x8F})
+
+    def non_ipp_usb_bulk_out(self) -> list["UsbTransfer"]:
+        """Bulk-OUT transfers EXCLUDING the IPP-USB lanes. When the
+        capture happened while ipp-usb was running, this strips the
+        HTTP-framed IPP requests and leaves only vendor-specific or
+        IEEE-1284-printer-class traffic."""
+        return [
+            t for t in self.bulk_out
+            if t.endpoint not in self.IPP_USB_ENDPOINTS_OUT
+        ]
+
+    def non_ipp_usb_bulk_in(self) -> list["UsbTransfer"]:
+        """Bulk-IN transfers EXCLUDING the IPP-USB lanes."""
+        return [
+            t for t in self.bulk_in
+            if t.endpoint not in self.IPP_USB_ENDPOINTS_IN
+        ]
+
+    def maintenance_bulk_out(self) -> list["UsbTransfer"]:
+        """Bulk-OUT to endpoint 0x03 only — the Service Tool maintenance
+        target endpoint per the locked usb_interface_layout. Returns the
+        actual absorber-reset command bytes when an R1 capture has them.
+        """
+        return [t for t in self.bulk_out if t.endpoint == 0x03]
+
+    def maintenance_bulk_in(self) -> list["UsbTransfer"]:
+        """Bulk-IN from endpoint 0x86 only — the Service Tool maintenance
+        response endpoint."""
+        return [t for t in self.bulk_in if t.endpoint == 0x86 and t.payload_length > 0]
+
     def identify_canon_headers(self) -> list[tuple[int, str, str]]:
         """Walk the bulk-OUT sequence and identify likely Canon protocol
         headers. Returns [(transfer_index, protocol_family, first_8_bytes), ...].

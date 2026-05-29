@@ -172,6 +172,32 @@ def test_summary_dataclass_has_consistent_counts() -> None:
     )
 
 
+@needs_tshark
+def test_non_ipp_usb_bulk_out_strips_ipp_lanes_from_baseline() -> None:
+    """Running non_ipp_usb_bulk_out() on the IPP-USB baseline should
+    return an empty list — every bulk-OUT in that fixture is on 0x0c
+    or 0x0e (the IPP-USB lanes). If something else shows up, either
+    the fixture changed or our IPP_USB_ENDPOINTS_OUT set is wrong."""
+    summary = summarize(IPP_USB_BASELINE_FIXTURE)
+    assert len(summary.bulk_out) > 0, "fixture should have some bulk-OUT"
+    non_ipp = summary.non_ipp_usb_bulk_out()
+    assert non_ipp == [], (
+        f"expected no non-IPP bulk-OUT in IPP-USB baseline; got {non_ipp}"
+    )
+
+
+@needs_tshark
+def test_maintenance_bulk_out_zero_in_both_baselines() -> None:
+    """maintenance_bulk_out() should return [] in BOTH baselines —
+    neither the Wine launch nor the IPP-USB query session touched
+    interface 4. This is the assertion that R1 captures will eventually
+    NEGATE — when an R1 capture has bytes here, we have evidence."""
+    wine = summarize(WINE_LAUNCH_FIXTURE)
+    ipp = summarize(IPP_USB_BASELINE_FIXTURE)
+    assert wine.maintenance_bulk_out() == []
+    assert ipp.maintenance_bulk_out() == []
+
+
 def test_tshark_missing_raises_clean_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """Regression: if tshark isn't installed, surface a clean
     TsharkUnavailableError with actionable install hints."""
