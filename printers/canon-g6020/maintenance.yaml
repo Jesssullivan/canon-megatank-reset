@@ -82,7 +82,23 @@ usb_interface_layout:
 #   - `captured_at`       — ISO8601 + source (wine|qemu|ghidra)
 #   - `last_validated_at` — when this op was last successfully replayed against the named test unit
 
-supported: []
+supported:
+  # The absorber-reset path, mapped by R3 static analysis (TIN-1697). The exact
+  # wire_bytes are `pending-capture` because the Service Tool obfuscates them
+  # (see command_protocol.obfuscation) — they come from R1/R2 dynamic capture,
+  # validated against the firmware dispatch table (TIN-1699), before any replay.
+  absorber_reset:
+    name: 'Ink Absorber Counter — Set/reset'
+    risk: write-eeprom
+    status: pending-capture
+    operation_group: 7                       # FUN_0040ac60 group selector
+    pre_transform_payload: '[00, 03, flags, 03, idx]'  # flags 0x01|0x81 (checkbox); idx = absorber selector
+    dialog_controls:
+      dlg_137_set_button_id: 1100
+      dlg_133_set_button_id: [1015, 1020, 1032]
+    byte_sequence: null                      # filled by R1/R2 capture, validated by TIN-1699
+    captured_at: null
+    last_validated_at: null
 
 # ─── Safety budget ────────────────────────────────────────────────────────────
 
@@ -195,3 +211,34 @@ win11_iso:
   verified: '2026-05-29'                        # SHA matched byte-for-byte: neo == mbp-13 == pinned
   location: 'mbp-13:~/canon-tool-staging/iso/Win11_25H2_English_x64_v2.iso'
   source: 'https://www.microsoft.com/software-download/windows11'
+
+# ─── Command protocol (recovered via R3 Ghidra static analysis, TIN-1697) ────
+# Source: ServiceTool_v5103.exe static trace. See
+# docs/research/canon-tool-ghidra-notes.md for the full derivation.
+# Status of the absorber-reset opcode is `pending-capture`: the wire bytes are
+# obfuscated by the Service Tool's EncCommService layer, so the exact sequence
+# is recovered by R1/R2 dynamic capture (TIN-1694) + validated against the
+# firmware dispatch table (TIN-1699), NOT hand-built from this static trace.
+
+command_protocol:
+  transport:
+    windows: 'usbscan.sys via DeviceIoControl on \\.\UsbscanN (CreateFileA + SetupDi*)'
+    linux: 'pyusb bulk transfer on interface 4 (bulk OUT 0x03 / bulk IN 0x86)'
+    ioctl_send: 0x220038          # host -> printer (header + payload)
+    ioctl_receive: 0x22003c       # printer -> host (3-byte header, read response)
+  wire_frame:
+    layout: '[cmd:u8][arg_hi:u8][arg_lo:u8][payload...]'   # 3-byte big-endian header
+    generic_cmds:
+      send: 0x85
+      receive: 0x86
+    note: 'Operation identity is carried in the (transformed) data block, not the cmd byte.'
+  obfuscation:
+    class: 'EncCommService'
+    notes: |
+      The Service Tool transforms/encodes the command data before the wire and
+      wraps the send path in anti-tamper checks (TOOL_0006_002 license tokens,
+      abort-on-failure). Replay must use captured encoded bytes verbatim, valid
+      iff the transform is deterministic per command (Phase-A differential check).
+  dispatch_map:                   # button group selector -> operation (from FUN_0040ac60)
+    group_7: 'Ink Absorber Counter (Set)'   # the 5B00 reset path
+    group_0x37: 'other counter (id=1152 handler)'

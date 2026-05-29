@@ -368,3 +368,56 @@ Note the `param_2+3 == 'G'` (0x47) and `== 0x03` branches in `FUN_0040ac60`:
 the 4th payload byte (`0x03` here) is a sub-type the dispatcher switches on
 (0x03 path issues an extra 6-byte block + applies to non-PRO models). For the
 absorber set it is `0x03`, so that path runs.
+
+## Finding F — the EncCommService obfuscation layer (the static ceiling)
+
+Followed the dispatch into the transport object. `FUN_0040ac60`'s `lParam`
+is a global singleton `EncCommService` (`&DAT_00494ee0`; ctor `FUN_0042aa20`
+sets `*obj = EncCommService::vftable @ 0x471dec`). The send method is
+`vtable[0x48]` = `FUN_0040fb40`. Inside it:
+
+1. **Anti-tamper gate.** The function is laced with repeated checks on the
+   token `TOOL_0006_002` (stack constants `0x4c4f4f54 0x3030305f 0x30305f36
+   0x5f32` = "TOOL","_000","6_00","2_") via `thunk_FUN_0042d410` /
+   `thunk_FUN_0042b780`; any failure calls `FUN_00401020(0)` (abort). An
+   obfuscation counter `_DAT_00494fd0 += 0x21` is bumped between checks.
+2. **Transform + framing.** The operation payload is `memcpy`'d into a large
+   (~0x2d4-byte) stack buffer, passed through an inner codec object's methods
+   (`*this`, `*this+8`, `*this+0x50`), then transmitted via
+   `FUN_0042b030(ctx, 0x85, 0, 0, buf, 0x14, &status, 3000)` and a paired
+   `FUN_0042b030(ctx, 0x86, 0, 1, buf, 0x14, ...)`. `FUN_0042b030` forwards to
+   `FUN_0042cec0` → … → the `FUN_004302c0` usbscan IOCTL.
+   - `0x85` / `0x86` are the **generic SEND / RECEIVE command bytes** that fill
+     the `[cmd, argHi, argLo]` IOCTL header. The operation identity (absorber
+     vs other) is carried in the (transformed) 20-byte data block, not the cmd.
+   - `FUN_0042ae40` (sibling slot) reports results: `"A function was finished"`
+     / `"Error! (error code : %03d)"` — a request/response model.
+
+### Conclusion of the static arm
+
+The exact **on-the-wire absorber-reset bytes are gated behind a deliberate
+obfuscation/transform layer** (`EncCommService` + an inner codec object +
+`TOOL_0006` anti-tamper). Recovering them purely statically means fully
+reversing that transform — high cost, and exactly the protection Canon
+intends. What static analysis **did** deliver, with high confidence:
+
+| layer | recovered |
+|---|---|
+| USB transport | usbscan IOCTL `0x220038` SEND / `0x22003c` RECV |
+| wire frame | `[cmd:u8][arg_hi:u8][arg_lo:u8][payload]` |
+| generic framing cmds | `0x85` SEND, `0x86` RECEIVE |
+| dispatch | button → `FUN_0040ac60(group, payload)`; **group 7 = Ink Absorber Counter** |
+| absorber op payload | `[00, 03, flags(0x01/0x81), 03, idx]` (pre-transform) |
+| transport class | `EncCommService` (encoded comms + anti-tamper) |
+
+**Decision (updates the R-rung plan):** defeating the transform statically is
+not worth it. The cheaper, more reliable path is **dynamic capture (R1/R2) of
+the actual wire bytes** for the absorber "Set" — now fully parseable as
+`[cmd, argHi, argLo][data]` — then **verbatim replay**. Because the comms are
+encoded, replay must use the *captured encoded bytes*, not a hand-built packet;
+this works iff the transform is deterministic per command, which is exactly
+what the Phase-A differential-capture safety check verifies (capture the op
+3–5× — identical byte streams ⇒ safe to replay; varying ⇒ session state, stop).
+The TIN-1699 cross-reference accordingly compares **R1/R2 captured bytes** vs
+**the firmware dispatch table**, with the Ghidra trace providing the framing
+that makes both interpretable.
