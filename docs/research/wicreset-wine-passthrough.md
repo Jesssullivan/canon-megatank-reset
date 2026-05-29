@@ -49,13 +49,23 @@ protocol shifts to:
    accessible at the Linux level) — Wine's limitation does not affect our own tool.
 3. Cross-ref with the Canon Service Tool Ghidra findings (already recovered).
 
-### Options still open for a *dynamic* WICReset capture (if wanted)
-- **Native/nix Wine** (not flatpak) with direct `/dev/bus/usb` → `wineusb` may
-  enumerate the Canon. Untried (wine is a heavy nix build).
+### Native/nix Wine — TRIED, same result (2026-05-29)
+Installed `wineWowPackages.stable` (wine-wow 10.0) via the nix profile on mbp-13 —
+**no flatpak sandbox, direct `/dev/bus/usb`**. Fresh prefix (`WINEDLLOVERRIDES=
+mscoree=d;mshtml=d` to skip the Mono/Gecko prompts), silent-installed WICReset,
+launched `printerpotty.exe` with `WINEDEBUG=+wineusb`, ipp-usb stopped. **Identical
+outcome**: "Application could not find any printers connected to this PC", and the
+`+wineusb` log shows **no device-add for `04a9`**. So the blocker is **Wine's USB
+enumeration not presenting this Canon to the app at all** — not the flatpak sandbox.
+Conclusion: dynamic WICReset capture over Wine (either build) is a **dead end**.
+
+### Option still open (lower priority)
 - **Network discovery**: WICReset finds printers over "USB **or network**". Put the
   G6020 on the LAN; WICReset Connect may find it over the network (no USB
-  passthrough) — but then the capture surface is network (tcpdump), not usbmon, and
-  likely cloud-brokered.
+  passthrough) — but the capture surface is then network (tcpdump), not usbmon, and
+  likely cloud-brokered. Deferred.
 
-**Recommendation:** make **T2 static RE** the primary protocol-recovery path; keep
-the Wine/network capture as an optional corroboration if static RE leaves gaps.
+**Recommendation:** make **T2 static RE** the primary protocol-recovery path (both
+Wine variants conclusively can't surface the printer to WICReset). The native pyusb
+tool (T5) drives interface 4 directly (`driver=none`) — Wine is not on the critical
+path for the fleet mechanism. Keep network-discovery as optional corroboration only.
