@@ -1,0 +1,60 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+.envrc.local
+.env.sops
+.env.sops.*
+!.env.example
+
+# direnv + Nix
+.direnv/
+result
+result-*
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+dist/
+build/
+*.egg-info/
+
+# AI/LLM tooling (CLAUDE.md and AGENTS.md are tracked house contracts)
+.claude/
+.serena/
+.aider*
+
+# Local ephemeral state
+.tmp/
+.worktrees/
+.huskycat/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# ─── Reverse-engineering artifacts — NEVER commit (no binary redistribution) ───
+# Vendor binaries (Canon Service Tool, WICReset, firmware blobs) and the Ghidra
+# project DB stay local. Only our own scripts + curated findings are tracked.
+.ghidra-work/
+*.exe
+*.bin
+*.dmg
+*.zip
+*.iso
+decoded.asc
+decoded.bin
+firmware.bin
+
+# Capture working dirs. Committed fixtures under captures/ are force-added.
+canon-tool-staging/
+/tmp-captures/
+*.pcapng
+!captures/*.pcapng.gz

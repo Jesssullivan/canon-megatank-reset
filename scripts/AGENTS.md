@@ -9,7 +9,7 @@ rules apply.
 ## Critical rules
 
 1. **Scripts MAY break safety gates** that the service-side code
-   (in `src/printstack_canon/`) enforces. Scripts are run by humans
+   (in `src/canon_megatank/`) enforces. Scripts are run by humans
    who know what they're doing during the capture / RE phases.
    Example: `safe-ping-probe.py` stops `ipp-usb` directly without
    going through the lockfile — that's intentional for setup but

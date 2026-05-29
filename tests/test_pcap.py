@@ -18,8 +18,8 @@ from shutil import which
 
 import pytest
 
-import printstack_canon.pcap as pcap_mod
-from printstack_canon.pcap import (
+import canon_megatank.pcap as pcap_mod
+from canon_megatank.pcap import (
     PcapSummary,
     TsharkUnavailableError,
     summarize,

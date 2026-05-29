@@ -8,7 +8,7 @@ and present them as typed dataclasses ready for pinning in
 `printers/canon-g6020/maintenance.yaml`.
 
 Run via `just canon-analyze <pcap>` or import as
-`from printstack_canon.pcap import summarize`.
+`from canon_megatank.pcap import summarize`.
 """
 
 from __future__ import annotations
@@ -283,7 +283,7 @@ def summarize(pcap_path: Path | str) -> PcapSummary:  # noqa: PLR0912, PLR0915
 
 
 def main() -> int:
-    """`python -m printstack_canon.pcap <pcap>` — print a human summary."""
+    """`python -m canon_megatank.pcap <pcap>` — print a human summary."""
     parser = argparse.ArgumentParser(description="Summarize a canon-tool USB pcap.")
     parser.add_argument("pcap", type=Path, help="Path to .pcapng[.gz]")
     parser.add_argument("--hex-only", action="store_true",

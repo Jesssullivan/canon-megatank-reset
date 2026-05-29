@@ -81,7 +81,7 @@ def run() -> int:
 
 
 def main() -> Any:  # pragma: no cover
-    """Convenience for `python -m printstack_canon`."""
+    """Convenience for `python -m canon_megatank`."""
     sys.exit(run())
 
 

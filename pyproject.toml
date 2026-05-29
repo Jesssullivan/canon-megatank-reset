@@ -1,32 +1,33 @@
 [project]
-name = "printstack-canon"
+name = "canon-megatank-reset"
 version = "0.0.1"
-description = "Canon G-series MegaTank maintenance ops over USB. Open-source replacement for Canon Service Tool, scoped to fleet G6020 refurb. See docs/adr/0007-canon-tool-reverse-engineering.md."
+description = "Linux-first, fleet-reproducible Canon MegaTank (G-series) waste-ink / ink-absorber counter reset, built on reverse-engineered protocol. Open replacement for the Canon Service Tool + WICReset, scoped to fleet refurb. See docs/adr/0007 + docs/spec/."
 requires-python = ">=3.12"
 dependencies = [
   "pyusb>=1.2.1",
   "structlog>=24.4.0",
-  "ruamel.yaml>=0.18.0",      # round-trip yaml for maintenance.yaml
+  "ruamel.yaml>=0.18.0",      # round-trip yaml for maintenance.yaml SSOT
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest>=8.3.0",
   "pytest-asyncio>=0.24.0",
+  "hypothesis>=6.100.0",      # property tests for the protocol model (T3)
   "ruff>=0.7.0",
   "mypy>=1.13.0",
 ]
 
 [project.scripts]
-printstack-canon = "printstack_canon.main:run"
-printstack-canon-pcap = "printstack_canon.pcap:main"
+canon-megatank = "canon_megatank.main:run"
+canon-megatank-pcap = "canon_megatank.pcap:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/printstack_canon"]
+packages = ["src/canon_megatank"]
 
 [tool.ruff]
 line-length = 100

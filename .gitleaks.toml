@@ -1,0 +1,8 @@
+title = "canon-megatank-reset"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "No repository-specific allowlist entries yet."
+paths = ["^$"]

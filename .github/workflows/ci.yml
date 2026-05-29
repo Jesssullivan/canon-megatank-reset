@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets-scan:
+    name: secrets-scan
+    runs-on: tinyland-nix
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: tinyland-inc/ci-templates/.github/actions/setup-nix@v2
+      - name: Gitleaks history scan
+        run: nix develop --command just secrets-scan
+
+  check:
+    name: check (lint + typecheck + yaml/ansible)
+    needs: [secrets-scan]
+    runs-on: tinyland-nix
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: tinyland-inc/ci-templates/.github/actions/setup-nix@v2
+      - run: nix develop --command just check
+
+  test:
+    name: test (pytest + protocol property tests)
+    needs: [secrets-scan]
+    runs-on: tinyland-nix
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: tinyland-inc/ci-templates/.github/actions/setup-nix@v2
+      - run: nix develop --command just test

@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import pytest
 
-from printstack_canon.fingerprint import (
+from canon_megatank.fingerprint import (
     load_maintenance,
     locked_test_unit,
     locked_write_budget,
     verify_fingerprint_matches,
 )
-from printstack_canon.types import (
+from canon_megatank.types import (
     FingerprintMismatchError,
     PrinterFingerprint,
     UnknownPrinterError,
