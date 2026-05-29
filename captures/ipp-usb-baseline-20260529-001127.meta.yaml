@@ -1,0 +1,96 @@
+# Sidecar metadata for ipp-usb-baseline-20260529-001127.pcapng.gz
+#
+# Second evidence-class capture: a 6-second tshark window during 4
+# back-to-back ipptool queries against the local ipp-usb proxy at
+# localhost:60001. Establishes the contrastive baseline of what
+# "normal IPP-USB traffic" looks like on the bus — used to filter
+# OUT this noise from future Service Tool maintenance captures.
+
+file: 'ipp-usb-baseline-20260529-001127.pcapng.gz'
+packet_count: 420
+duration_seconds: 6.0
+
+# ─── When + how ────────────────────────────────────────────────────
+
+captured_at: '2026-05-28T20:11:27Z'
+captured_by: 'remote-driven via ssh from neo (mid-session)'
+capture_method: |
+  Headless capture on mbp-13 — ipp-usb LEFT RUNNING (this is normal
+  state, unlike the R1 baseline which stops ipp-usb):
+    1. modprobe usbmon (no-op; already loaded)
+    2. tshark -i usbmon1 -w /tmp/<pcap> -F pcapng -a duration:6 (root)
+    3. /usr/bin/ipptool -q ipp://localhost:60001/ipp/print get-printer-attributes.test × 3
+    4. /usr/bin/ipptool -q ipp://localhost:60001/ipp/print get-jobs.test × 1
+    5. wait for tshark duration to elapse
+    6. chown + mv to ~/canon-tool-staging/captures/, gzip -9
+
+# ─── The target printer at capture time ────────────────────────────
+
+captured_against:
+  uuid: '00000000-0000-1000-8000-00186501807c'
+  firmware_version: '1.070'
+  serial_number_string: '01807C'
+  printer_state_at_capture: 'stopped (5B00 — marker-waste-full-error)'
+
+# ─── Operation profile ─────────────────────────────────────────────
+
+operation: 'ipp_usb_baseline_contrastive'    # NOT a maintenance op
+mode_selected: null                           # no Service Tool involved
+gui_steps_taken: []
+
+# ─── Outcome ────────────────────────────────────────────────────────
+
+result: 'baseline_traffic_pattern'
+
+result_evidence: |
+  4 successful ipptool queries while tshark captured:
+    - 3× get-printer-attributes — IPP queries proxied through ipp-usb
+      over USB IPP-over-USB endpoints (interfaces 2 + 3 alt 1)
+    - 1× get-jobs — same proxying path
+
+  CRITICAL FINDING (vs the Wine-launch baseline):
+    - This capture: 420 packets in 6s = 70 packets/sec on the bus
+    - Wine launch:   60 packets in 3s = 20 packets/sec on the bus
+  IPP-USB is ~3.5x denser than Wine USB descriptor probes. When
+  capturing Service Tool maintenance traffic during an R1 spike, the
+  Service Tool's bulk-OUT on endpoint 0x03 will be visible as a
+  DISTINCT spike against this dense IPP-USB background only because
+  it lands on a different endpoint pair (0x03/0x86 vs 0x0c/0x8d
+  or 0x0e/0x8f for the IPP-USB lanes).
+
+  Use this pcap as a regex filter when triaging R1 captures:
+    "anything on endpoints 0x0c, 0x8d, 0x0e, 0x8f is ipp-usb noise"
+
+# ─── Byte-level summary ─────────────────────────────────────────────
+# (filled by canon-analyze after analysis completes)
+
+byte_summary:
+  total_packets: 420
+  ipp_usb_interfaces: [2, 3]                  # endpoints 0x0c/0x8d and 0x0e/0x8f
+  expected_dominant_endpoints:                # the ipp-usb lanes
+    - '0x0c'                                  # bulk OUT to interface 2 IPP-USB
+    - '0x8d'                                  # bulk IN from interface 2 IPP-USB
+    - '0x0e'                                  # bulk OUT to interface 3 IPP-USB
+    - '0x8f'                                  # bulk IN from interface 3 IPP-USB
+  expected_no_traffic_on:                     # confirms maintenance channel is idle
+    - '0x03'                                  # interface 4 OUT (Service Tool target)
+    - '0x86'                                  # interface 4 IN
+
+# ─── Pinned for regression ──────────────────────────────────────────
+
+regression_role: 'ipp-usb-noise-baseline'
+expected_match_strictness: 'distribution'    # not exact match — verifies the
+                                              # distribution shape of IPP-USB
+                                              # traffic stays consistent
+
+# ─── Notes ──────────────────────────────────────────────────────────
+
+notes: |
+  Captured mid-session during the Win11 ISO rsync. The G6020 was in
+  5B00 (stopped) the whole time — these queries are pure read-only
+  status pings, no print job was submitted.
+
+  When the R1 cheap-spike happens, the user's tshark capture will
+  contain BOTH this kind of ipp-usb baseline traffic (until the script
+  stops ipp-usb) AND the Wine + Service Tool traffic afterward. The
+  analyzer should be smart enough to separate by endpoint.
