@@ -16,7 +16,7 @@ exists yet.
 | --- | --- | --- |
 | `ping-baseline-2026-05-28.yaml` | n/a | USB descriptor table for the G6020 test unit (6 interfaces, maintenance channel locked as interface 4: bulk OUT 0x03 / bulk IN 0x86). IEEE-1284 device-id payload pinned for cmd_set drift detection. |
 | `v5103-wine-launch-no-clicks-20260528-222034.pcapng.gz` + `.meta.yaml` | 1872 | 60-packet Wine + Service Tool v5103 launch capture under Flathub Wine on mbp-13 via Xvfb. **Negative-control baseline:** zero bulk-OUT on endpoint 0x03 confirms Service Tool requires GUI clicks to bind interface 4. |
-| `ipp-usb-baseline-20260529-001127.pcapng.gz` + `.meta.yaml` | ~25k | 420-packet capture of 4 ipptool queries against ipp-usb on localhost:60001. **Contrastive baseline:** decoded bulk-OUT shows ASCII `POST /ipp/print HTTP/1.1` — IPP-USB is HTTP-framed inside USB bulk transfers. Traffic lives on endpoints 0x0c / 0x0e / 0x8d / 0x8f. |
+| `ipp-usb-baseline-20260529-001127.pcapng.gz` + `.meta.yaml` | 20022 | 420-packet capture of 4 ipptool queries against ipp-usb on localhost:60001. **Contrastive baseline:** decoded bulk-OUT shows ASCII `POST /ipp/print HTTP/1.1` — IPP-USB is HTTP-framed inside USB bulk transfers. Traffic lives on endpoints 0x0c / 0x0e / 0x8d / 0x8f. |
 
 ### Test suite — 20/20 green
 
