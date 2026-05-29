@@ -126,8 +126,11 @@ finalize() {
 trap 'finalize' TERM INT
 echo $$ > "$PIDFILE"
 
+# NB: match the explicit "-reset" token, NOT "*reset*" — the tool name
+# "wicreset" contains "reset", so a read label like wicreset-read-1 would
+# otherwise wrongly show the key-spending banner. Safe default = read.
 case "$LABEL" in
-  *reset*) ACTION_BLOCK='║  Enter your WICReset key, click "Reset". Wait ~2 min for it to finish.  ║
+  *-reset*) ACTION_BLOCK='║  Enter your WICReset key, click "Reset". Wait ~2 min for it to finish.  ║
 ║  ⚠ THIS SPENDS THE SINGLE-USE KEY. Only proceed if the new waste-ink     ║
 ║    pads/kit are installed and a Phase-1 read capture already worked.     ║' ;;
   *)       ACTION_BLOCK='║  Click "Read waste counters" ONLY. Do NOT enter a key or reset — this   ║
