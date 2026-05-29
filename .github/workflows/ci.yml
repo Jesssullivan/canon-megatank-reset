@@ -18,7 +18,7 @@ concurrency:
 jobs:
   secrets-scan:
     name: secrets-scan
-    runs-on: tinyland-nix
+    runs-on: ${{ fromJSON(vars.PRIMARY_LINUX_RUNNER_LABELS_JSON || '["ubuntu-latest"]') }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
@@ -31,7 +31,7 @@ jobs:
   check:
     name: check (lint + typecheck + yaml/ansible)
     needs: [secrets-scan]
-    runs-on: tinyland-nix
+    runs-on: ${{ fromJSON(vars.PRIMARY_LINUX_RUNNER_LABELS_JSON || '["ubuntu-latest"]') }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
@@ -41,7 +41,7 @@ jobs:
   test:
     name: test (pytest + protocol property tests)
     needs: [secrets-scan]
-    runs-on: tinyland-nix
+    runs-on: ${{ fromJSON(vars.PRIMARY_LINUX_RUNNER_LABELS_JSON || '["ubuntu-latest"]') }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
