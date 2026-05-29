@@ -188,14 +188,26 @@
 # RE instrumentation: drive + screenshot the WICReset Wine GUI under Xvfb with
 # no physical display (the free-read capture, T1). Xvfb is in the nix profile.
 
-- name: 'dnf: install headless GUI automation tooling (xdotool + scrot, EPEL)'
-  ansible.builtin.dnf:
-    name:
-      - xdotool
-      - scrot
-    state: present
-    enablerepo: epel
-    disablerepo: tailscale-stable
+- name: 'nix: install headless GUI automation tooling (xdotool + scrot) into the capture-user profile'
+  # EL10/EPEL has no xdotool/scrot (X11 utils dropped). Use the nix-first
+  # user-space model (Xvfb already comes from the nix profile). Unprivileged;
+  # idempotent via a `command -v` guard.
+  become: false
+  ansible.builtin.shell: |
+    set -euo pipefail
+    export PATH="$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"
+    changed=0
+    for pkg in xdotool scrot; do
+      if ! command -v "$pkg" >/dev/null 2>&1; then
+        nix profile install "nixpkgs#$pkg"
+        changed=1
+      fi
+    done
+    echo "CMR_CHANGED=$changed"
+  args:
+    executable: /bin/bash
+  register: cmr_nix_gui
+  changed_when: "'CMR_CHANGED=1' in cmr_nix_gui.stdout"
   when: canon_tool_dev_install_gui_automation | bool
   tags: [canon-tool-dev, gui]
 
