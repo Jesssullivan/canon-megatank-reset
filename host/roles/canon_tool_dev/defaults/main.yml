@@ -21,3 +21,10 @@ canon_tool_dev_capture_user: jess
 # (04a9). Extend if testing other vendor maintenance tools.
 canon_tool_dev_udev_vendor_ids:
   - '04a9'    # Canon
+
+# Scoped passwordless-sudo drop-in for the capture harness. Follows the lab
+# convention (lab/roles/common: /etc/sudoers.d/<name> from a visudo-validated
+# template) but least-privilege: only the ipp-usb service toggle. usbmon
+# capture is unprivileged via the usbmon group + dumpcap capabilities, so the
+# whole capture can be driven headlessly as the capture user.
+canon_tool_dev_sudoers_file: canon-capture

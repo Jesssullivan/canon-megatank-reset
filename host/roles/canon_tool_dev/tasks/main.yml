@@ -162,12 +162,27 @@
 
 # ─── Final group membership refresh (wireshark group now exists) ─────────────
 
-- name: 'user: re-confirm {{ canon_tool_dev_capture_user }} in wireshark group'
+- name: 'user: re-confirm {{ canon_tool_dev_capture_user }} in wireshark + usbmon groups'
+  # usbmon membership lets tshark read /dev/usbmonN (root:usbmon 0640) without
+  # sudo; combined with dumpcap's file-capabilities the capture is unprivileged.
   ansible.builtin.user:
     name: '{{ canon_tool_dev_capture_user }}'
-    groups: 'printstack,wireshark'
+    groups: 'printstack,wireshark,usbmon'
     append: true
   tags: [canon-tool-dev, groups]
+
+# ─── Scoped passwordless sudo (lab convention) ───────────────────────────────
+# Only the ipp-usb service toggle — see templates/canon-capture-sudoers.j2.
+
+- name: 'sudoers: scoped NOPASSWD drop-in for the capture harness'
+  ansible.builtin.template:
+    src: canon-capture-sudoers.j2
+    dest: '/etc/sudoers.d/{{ canon_tool_dev_sudoers_file }}'
+    mode: '0440'
+    owner: root
+    group: root
+    validate: 'visudo -cf %s'
+  tags: [canon-tool-dev, sudo]
 
 - name: 'note: log out + back in for new group membership to take effect'
   ansible.builtin.debug:

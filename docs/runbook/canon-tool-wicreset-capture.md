@@ -51,16 +51,32 @@ so it is days out.
 Do Phase 1 now to prove the pipeline and bank the handshake/read protocol. Do
 **not** run Phase 2 until the absorber is physically handled.
 
-## Phase 1 — free read capture (do now)
+## One-time host setup (IaC)
 
-On **mbp-13** (printer connected, `canon_tool_dev` applied):
+The capture runs **unprivileged** — `canon_tool_dev` puts the capture user in the
+`usbmon` group (so tshark reads `/dev/usbmonN` via dumpcap's file-capabilities)
+and installs a **scoped** `/etc/sudoers.d/canon-capture` (NOPASSWD for *only*
+`systemctl stop/start ipp-usb`; lab `roles/common` convention, command-scoped).
+Apply once (become password from your store / `ANSIBLE_BECOME_PASSWORD`):
 
 ```sh
-sudo services/canon-tool/scripts/wicreset-capture.sh wicreset-read-1
-# script: pre-flight (fw 1.070) → stop ipp-usb → tshark usbmon1 → READY
+# become password comes from $BECOME_PASSWORD_FILE (sops-decrypted) or --ask-become-pass
+just canon-dev-setup '--tags canon-tool-dev,sudo,groups'
+# then re-login (or `newgrp usbmon`) so the usbmon group membership is live
+```
+
+After that the capture is fully headless — no sudo prompt, drivable over ssh.
+
+## Phase 1 — free read capture (do now)
+
+On **mbp-13** (printer connected, role applied, in the canon worktree):
+
+```sh
+~/git/printstack-canon/services/canon-tool/scripts/wicreset-capture.sh wicreset-read-1
+# runs as YOU (not root): pre-flight (fw 1.070) → sudo-stop ipp-usb → tshark → READY
 # operator (separate terminal / display): launch WICReset, select the G6020 via
 #   USB, click "Read waste counters" (NO key, NO reset). Let it finish.
-# back in the script terminal: press ENTER → stop, gzip, summary
+# stop: press ENTER (TTY)  —or headless—  kill -TERM $(cat ~/canon-tool-staging/.wicreset-capture-wicreset-read-1.pid)
 ```
 
 Then rsync to neo + analyze:
@@ -82,12 +98,17 @@ Run it 2–3× — identical read transactions confirm the protocol is determini
 ## Phase 2 — reset capture (only after pads installed)
 
 ```sh
-sudo services/canon-tool/scripts/wicreset-capture.sh wicreset-reset-real
+~/git/printstack-canon/services/canon-tool/scripts/wicreset-capture.sh wicreset-reset-real
 # operator: launch WICReset → select G6020 (USB) → enter key 3321...E (from the
 #   OctoInkjet email; do NOT paste the key into any repo file) → click Reset.
 #   Wait ~2 min for completion. Then power-cycle the printer.
 # back in the script terminal: ENTER → stop, gzip, summary
 ```
+
+**GUI driving (hybrid, per decision):** Phase 1's read is automated headlessly
+via Xvfb + xdotool (built + validated separately, since it's free + re-runnable);
+Phase 2's keyed Reset stays behind a **human-confirmed forwarded display** —
+we do not point blind GUI automation at a single-use paid action.
 
 Record outcome in a `.meta.yaml` sidecar (copy the existing template). The
 analyzer pins `extracted_byte_sequence`; promote

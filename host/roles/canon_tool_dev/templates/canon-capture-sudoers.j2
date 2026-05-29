@@ -1,0 +1,13 @@
+# {{ ansible_managed }}
+# Least-privilege passwordless sudo for the canon-tool USB capture harness.
+# Convention mirrors lab/roles/common (sudoers.d drop-in, visudo-validated),
+# but command-SCOPED rather than blanket NOPASSWD: ALL.
+#
+# The only privileged op the capture needs is toggling the ipp-usb service so
+# Wine/WICReset can claim the USB device. usbmon capture itself runs
+# UNPRIVILEGED via the `usbmon` group (node is root:usbmon 0640) + dumpcap's
+# file-capabilities (cap_net_admin,cap_net_raw). So nothing else is granted.
+
+Cmnd_Alias CANON_IPPUSB = /usr/bin/systemctl stop ipp-usb, /usr/bin/systemctl start ipp-usb
+
+{{ canon_tool_dev_capture_user }} ALL=(root) NOPASSWD: CANON_IPPUSB
