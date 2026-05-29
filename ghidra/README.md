@@ -15,6 +15,20 @@ in `docs/research/canon-tool-ghidra-notes.md` are tracked.
 |---|---|
 | `dump_canon.py` | program metadata, recovered C++ classes (RTTI), symbols matching maintenance/USB vocabulary, imported I/O primitives, import-library histogram |
 | `dump_strings.py` | every defined string → `<out>.txt`, plus a filtered model-name + maintenance-vocabulary hit list |
+| `trace_usb.py` | rank + decompile functions touching WriteFile/ReadFile/DeviceIoControl/CreateFileA/SetupDi\* or the Usbscan / EEPROM anchors |
+| `trace_callers.py` | decompile callers of a target function (depth 1/2) |
+| `vtable_probe.py` | resolve the C++ vtable holding a target method; dump the class method table + constructors (defeats virtual-dispatch indirection) |
+| `find_and_decomp.py` | byte-search for 32-bit constants (vtable installs) + decompile an explicit function list |
+| `parse_dialogs.py` | (plain python) parse RT_DIALOG templates → `(dialogId, controlId, caption)`; maps button captions to control IDs |
+| `find_msgmap.py` | scan `.rdata` for MFC `AFX_MSGMAP_ENTRY` (WM_COMMAND) → control-ID→handler map; decompile target handlers |
+| `peek_obj.py` | read a global object's vtable pointer + dump its method table; list refs (constructor/users) |
+| `dump_named_vtable.py` | dump a named C++ vftable's slots + decompile the method at a chosen offset |
+
+**TIN-1697 recipe (button → wire):** `parse_dialogs.py` (control IDs) →
+`find_msgmap.py` (ID→handler) → decompile handler → `FUN_0040ac60(group, payload)`
+→ `vtable_probe.py`/`dump_named_vtable.py` resolve `EncCommService` →
+the usbscan IOCTL `FUN_004302c0`. Full writeup:
+`docs/research/canon-tool-ghidra-notes.md`.
 
 ## Reproduce (on neo, Ghidra 11.4.2 via nix + JDK 21)
 
