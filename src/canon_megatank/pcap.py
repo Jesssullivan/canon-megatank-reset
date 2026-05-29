@@ -13,13 +13,22 @@ Run via `just canon-analyze <pcap>` or import as
 
 from __future__ import annotations
 
+import argparse
 import json
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from shutil import which
 
 from .types import CanonToolError
+
+# ─── Endpoint pins (mirrors maintenance.yaml::usb_interface_layout) ──────────
+# Pinned values from printers/canon-g6020/maintenance.yaml — used in
+# comparisons throughout this module so the magic-value lint stays clean.
+MAINTENANCE_BULK_OUT_EP = 0x03                  # interface 4 OUT — Service Tool target
+MAINTENANCE_BULK_IN_EP = 0x86                   # interface 4 IN  — response channel
+HEX_PAYLOAD_PREVIEW_CHARS = 40                  # how much of a payload to print in summary
 
 
 class TsharkUnavailableError(CanonToolError):
@@ -85,7 +94,7 @@ class PcapSummary:
     IPP_USB_ENDPOINTS_OUT: frozenset[int] = frozenset({0x0C, 0x0E})
     IPP_USB_ENDPOINTS_IN: frozenset[int] = frozenset({0x8D, 0x8F})
 
-    def non_ipp_usb_bulk_out(self) -> list["UsbTransfer"]:
+    def non_ipp_usb_bulk_out(self) -> list[UsbTransfer]:
         """Bulk-OUT transfers EXCLUDING the IPP-USB lanes. When the
         capture happened while ipp-usb was running, this strips the
         HTTP-framed IPP requests and leaves only vendor-specific or
@@ -95,24 +104,27 @@ class PcapSummary:
             if t.endpoint not in self.IPP_USB_ENDPOINTS_OUT
         ]
 
-    def non_ipp_usb_bulk_in(self) -> list["UsbTransfer"]:
+    def non_ipp_usb_bulk_in(self) -> list[UsbTransfer]:
         """Bulk-IN transfers EXCLUDING the IPP-USB lanes."""
         return [
             t for t in self.bulk_in
             if t.endpoint not in self.IPP_USB_ENDPOINTS_IN
         ]
 
-    def maintenance_bulk_out(self) -> list["UsbTransfer"]:
+    def maintenance_bulk_out(self) -> list[UsbTransfer]:
         """Bulk-OUT to endpoint 0x03 only — the Service Tool maintenance
         target endpoint per the locked usb_interface_layout. Returns the
         actual absorber-reset command bytes when an R1 capture has them.
         """
-        return [t for t in self.bulk_out if t.endpoint == 0x03]
+        return [t for t in self.bulk_out if t.endpoint == MAINTENANCE_BULK_OUT_EP]
 
-    def maintenance_bulk_in(self) -> list["UsbTransfer"]:
+    def maintenance_bulk_in(self) -> list[UsbTransfer]:
         """Bulk-IN from endpoint 0x86 only — the Service Tool maintenance
         response endpoint."""
-        return [t for t in self.bulk_in if t.endpoint == 0x86 and t.payload_length > 0]
+        return [
+            t for t in self.bulk_in
+            if t.endpoint == MAINTENANCE_BULK_IN_EP and t.payload_length > 0
+        ]
 
     def identify_canon_headers(self) -> list[tuple[int, str, str]]:
         """Walk the bulk-OUT sequence and identify likely Canon protocol
@@ -154,7 +166,7 @@ def _check_tshark() -> str:
     return path
 
 
-def summarize(pcap_path: Path | str) -> PcapSummary:
+def summarize(pcap_path: Path | str) -> PcapSummary:  # noqa: PLR0912, PLR0915
     """Read a pcapng + return a PcapSummary with bulk transfers grouped.
 
     Tshark is invoked twice:
@@ -164,6 +176,11 @@ def summarize(pcap_path: Path | str) -> PcapSummary:
     2) `-q -z io,stat,0` — total packet count + duration.
 
     For typical canon-tool captures (< 1000 packets), this is fast (< 200ms).
+
+    Complexity warnings (PLR0912/PLR0915) silenced — the per-packet field
+    extraction is naturally branchy and pulling it out into helpers would
+    obscure the tshark-field-to-PcapSummary mapping. If this grows further,
+    split.
     """
     pcap = Path(pcap_path).expanduser().resolve()
     if not pcap.is_file():
@@ -200,12 +217,12 @@ def summarize(pcap_path: Path | str) -> PcapSummary:
     )
     max_ts = 0.0
 
-    for line in proc.stdout.splitlines():
-        line = line.strip()
-        if not line or not line.startswith("{"):
+    for raw_line in proc.stdout.splitlines():
+        stripped = raw_line.strip()
+        if not stripped or not stripped.startswith("{"):
             continue
         try:
-            doc = json.loads(line)
+            doc = json.loads(stripped)
         except json.JSONDecodeError:
             continue
         # ek-json wraps fields in layers/<field>; pull what we need.
@@ -214,7 +231,8 @@ def summarize(pcap_path: Path | str) -> PcapSummary:
             continue
         summary.total_packets += 1
 
-        ts = float((layers.get("frame_time_relative") or [0])[0]) if layers.get("frame_time_relative") else 0.0
+        ts_field = layers.get("frame_time_relative")
+        ts = float((ts_field or [0])[0]) if ts_field else 0.0
         max_ts = max(max_ts, ts)
 
         ttype_raw = (layers.get("usb_transfer_type") or ["?"])[0]
@@ -266,8 +284,6 @@ def summarize(pcap_path: Path | str) -> PcapSummary:
 
 def main() -> int:
     """`python -m printstack_canon.pcap <pcap>` — print a human summary."""
-    import argparse
-
     parser = argparse.ArgumentParser(description="Summarize a canon-tool USB pcap.")
     parser.add_argument("pcap", type=Path, help="Path to .pcapng[.gz]")
     parser.add_argument("--hex-only", action="store_true",
@@ -304,8 +320,8 @@ def main() -> int:
     for i, t in enumerate(summary.bulk_out):
         if not t.payload_hex:
             continue
-        head = t.payload_hex[:40]
-        suffix = "..." if t.payload_length * 2 > 40 else ""
+        head = t.payload_hex[:HEX_PAYLOAD_PREVIEW_CHARS]
+        suffix = "..." if t.payload_length * 2 > HEX_PAYLOAD_PREVIEW_CHARS else ""
         print(f"  [{i:3d}] t={t.timestamp:7.3f}s  ep=0x{t.endpoint:02x}  "
               f"len={t.payload_length:4d}  {head}{suffix}")
     print()
@@ -314,13 +330,12 @@ def main() -> int:
     for i, t in enumerate(summary.bulk_in):
         if not t.payload_hex:
             continue
-        head = t.payload_hex[:40]
-        suffix = "..." if t.payload_length * 2 > 40 else ""
+        head = t.payload_hex[:HEX_PAYLOAD_PREVIEW_CHARS]
+        suffix = "..." if t.payload_length * 2 > HEX_PAYLOAD_PREVIEW_CHARS else ""
         print(f"  [{i:3d}] t={t.timestamp:7.3f}s  ep=0x{t.endpoint:02x}  "
               f"len={t.payload_length:4d}  {head}{suffix}")
     return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
-    import sys
     sys.exit(main())

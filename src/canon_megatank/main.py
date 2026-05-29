@@ -37,7 +37,7 @@ _shutting_down = False
 
 
 def _on_term(_signum: int, _frame: FrameType | None) -> None:
-    global _shutting_down
+    global _shutting_down  # noqa: PLW0603 — signal handler legitimately needs to set the module-level flag
     _shutting_down = True
 
 

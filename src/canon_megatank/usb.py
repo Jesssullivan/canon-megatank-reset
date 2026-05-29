@@ -12,8 +12,9 @@ other code calls into `ClaimedDevice` (see below).
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from typing import Iterator
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
+from typing import cast
 
 import usb.core
 import usb.util
@@ -104,10 +105,8 @@ class ClaimedDevice:
                 usb.util.release_interface(self._dev, self._interface_number)
             usb.util.dispose_resources(self._dev)
             if self._kernel_was_attached:
-                try:
+                with suppress(NotImplementedError, usb.core.USBError):
                     self._dev.attach_kernel_driver(0)
-                except (NotImplementedError, usb.core.USBError):
-                    pass
         except Exception:
             # Cleanup best-effort; don't mask the original exception.
             pass
@@ -125,7 +124,7 @@ class ClaimedDevice:
     @property
     def serial_number(self) -> str | None:
         try:
-            return usb.util.get_string(self._dev, self._dev.iSerialNumber)
+            return cast("str | None", usb.util.get_string(self._dev, self._dev.iSerialNumber))
         except (usb.core.USBError, ValueError):
             return None
 

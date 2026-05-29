@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ruamel.yaml import YAML
 
@@ -56,7 +56,7 @@ def load_maintenance(printer_id: str = "canon-g6020") -> dict[str, Any]:
     """Load + return the maintenance.yaml document for a printer."""
     path = find_maintenance_yaml(printer_id)
     with path.open("r", encoding="utf-8") as f:
-        return yaml.load(f)
+        return cast("dict[str, Any]", yaml.load(f))
 
 
 def locked_test_unit(printer_id: str = "canon-g6020") -> TestUnit:

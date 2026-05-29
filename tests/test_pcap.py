@@ -18,6 +18,7 @@ from shutil import which
 
 import pytest
 
+import printstack_canon.pcap as pcap_mod
 from printstack_canon.pcap import (
     PcapSummary,
     TsharkUnavailableError,
@@ -205,7 +206,6 @@ def test_tshark_missing_raises_clean_error(monkeypatch: pytest.MonkeyPatch) -> N
     def fake_which(name: str) -> str | None:
         return None
 
-    import printstack_canon.pcap as pcap_mod
     monkeypatch.setattr(pcap_mod, "which", fake_which)
 
     with pytest.raises(TsharkUnavailableError) as excinfo:

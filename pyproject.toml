@@ -35,6 +35,17 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "PL", "SIM"]
 
+[tool.ruff.lint.per-file-ignores]
+# Tests assert on hex byte values, packet counts, durations — these ARE
+# the test conditions, so the magic-value rule doesn't apply.
+"tests/*.py" = ["PLR2004"]
+
 [tool.mypy]
 strict = true
 python_version = "3.12"
+
+[[tool.mypy.overrides]]
+# pyusb (usb.core / usb.util) doesn't ship .pyi stubs; treat as Any-typed.
+# Same for ruamel.yaml.
+module = ["usb.*", "ruamel.*"]
+ignore_missing_imports = true
