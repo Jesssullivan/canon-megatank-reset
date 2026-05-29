@@ -72,35 +72,58 @@ and needs no auth — see the 1769 control).
 
 ---
 
-## Sourcing approaches (ranked for "hardware in hand at mbp-13")
+## Update-mechanism ground truth (confirmed 2026-05-29)
 
-### A. Capture the desktop **Canon IJ Firmware Update Tool** — REUSES THE RIG ★
-Canon ships a standalone firmware-update utility (Win/Mac). Run it under the
-**existing Wine/QEMU + tshark rig** (the same one R1 uses) pointed at the G6020,
-let it phone home for "is there an update," and capture the `/gds/…AN.bin` URL it
-resolves. Lowest new setup — the capture environment already exists. The blob is
-plain HTTP, so even if the version check is HTTPS we only need the URL string.
+The G6020 is the **"G6000 series"** in NA naming. Two facts kill the easy paths:
 
-### B. Capture the **panel-initiated** update check
-G6020 panel: *Setup → Device settings → Firmware update → Check*. The printer
-(on WiFi) contacts Canon and resolves a firmware URL. Capture requires the
-printer on a network we can observe (router port-mirror, or a laptop AP with
-`tcpdump`). Version check is likely TLS; the blob download is historically plain
-HTTP from `c-wss.com`, so a DNS-redirect / transparent-proxy that logs the blob
-GET is enough. More setup than (A) because the printer is currently USB-attached.
+- **Panel + internet only.** Canon's manual (G6000 series, `ug-178`) and KB
+  `ART183640` document firmware update **only** via *Setup → Device settings →
+  Firmware update → Install update*, with "make sure the printer is connected to
+  the internet." The printer downloads the firmware **itself** from a Canon
+  server. No file is offered to the user.
+- **No PIXMA host tool.** Canon's downloadable "Firmware Update Tool" EXEs exist
+  only for the **imagePROGRAF** pro line — not PIXMA consumer printers. So there
+  is no host-side updater to run under the Wine/QEMU rig and no bundled `.bin`
+  to extract. (Verified: every PIXMA G-series result was panel-only.)
+- **No public direct `.bin`.** Support pages and third-party "firmware" sites
+  (e.g. gofirmware.com — a content farm) expose nothing real.
 
-### C. Direct support-page / mirror discovery
-Canon regional support pages ("G6020 → Drivers & Downloads → Firmware") and
-third-party firmware archives sometimes expose the `…AN.bin` URL or host a copy.
-Cheap to try (web search + fetch); validate any blob by feeding it to
-`pixma_decrypt` and checking for SREC output.
+**Net:** the firmware lives only on Canon's server and on the printer's flash.
+We get it by **intercepting the printer's own panel-initiated download**.
 
-### D. Brute the `/gds/` content path — NOT RECOMMENDED
-We know the filename (`1865V1070AN.bin`) but not the content-id directory
-(`0400004794` for 1769). The id space is large and hammering Canon's CDN is
-rude; only consider if A–C fail and we find a way to narrow the id.
+## Sourcing approaches (ranked, post-ground-truth)
 
-### E. On-printer extraction — highest effort
+### A. Intercept the panel-initiated download — THE path ★
+Put the G6020 on a network whose traffic mbp-13 can observe, then trigger the
+panel firmware update and capture the firmware fetch. The blob download is
+**plain HTTP** from `gdlp01.c-wss.com/gds/…AN.bin` (confirmed via the 1769
+control), so **no TLS interception is needed to grab the blob** — we only need
+to see the GET. Capture options, simplest first:
+1. **macOS Internet Sharing → Ethernet.** Share mbp-13's WiFi to its Ethernet,
+   plug the G6020 into that Ethernet, run `tshark`/`tcpdump` on the `bridge100`
+   interface. The printer's HTTP firmware GET is in cleartext.
+2. Logging HTTP proxy / DNS-redirect, if the version *check* (which may be TLS)
+   must be observed to learn the URL before any download starts.
+3. Managed-switch port mirror, if one is available.
+
+Once the `GET …/<id>/01/1865V1070AN.bin` line is seen, we have the URL and can
+`curl` the blob directly over plain HTTP — the printer need not finish.
+
+> ⚠️ **Two hard constraints for approach A**
+> 1. **Do NOT let the update INSTALL.** The fingerprint safety gate keys on
+>    `firmware == 1.070`; a flash would invalidate the test-unit baseline and
+>    the recovered Ghidra offsets. Capture the *download*, then cancel before
+>    install — or just re-`curl` the URL and abort the panel flow.
+> 2. **The unit may already be current.** If 1.070 is the latest G6020 firmware,
+>    the panel will report "current version" and download **nothing** — no blob
+>    to intercept. Must confirm the latest version first (see open question).
+
+### B. Brute the `/gds/` content path — NOT RECOMMENDED
+Filename is known (`1865V1070AN.bin`) but the content-id dir is not
+(`0400004794` for 1769; firmware ids are in the `04xxxxxxxx` range). Large space,
+rude to Canon's CDN. Only if A is impossible and we can narrow the id.
+
+### C. On-printer extraction — highest effort
 Dump flash via service-mode / hardware. The Service Tool's "EEPROM Dump" reads
 EEPROM, not the firmware image, so this needs JTAG/teardown. Last resort.
 
@@ -108,13 +131,21 @@ EEPROM, not the firmware image, so this needs JTAG/teardown. Last resort.
 
 ## Recommended path
 
-1. **(A)** Acquire the G6020 IJ Firmware Update Tool and capture its resolved
-   `/gds/…AN.bin` URL under the existing rig; fetch the blob over plain HTTP.
-2. Fall back to **(C)** support-page/mirror discovery in parallel (cheap).
-3. **(B)** panel capture if A/C dry up and we can put the unit on a mirrored net.
-4. On a blob: SHA-pin it (do **not** commit — no Canon redistribution, ADR 0007),
-   run the TIN-1698 pipeline, and document the dispatch table in
+1. **Confirm the latest G6020 firmware version** (vs our unit's 1.070). If we're
+   behind, approach A can trigger a real download to intercept. If current, we
+   need a way to force a re-fetch or fall to (C).
+2. **Approach A:** observe the printer's network, trigger the panel update,
+   capture the plain-HTTP `…AN.bin` GET, `curl` the blob — **without installing**.
+3. On a blob: SHA-pin it (do **not** commit — no Canon redistribution, ADR 0007),
+   run the TIN-1698 pipeline, document the dispatch table in
    `canon-tool-firmware-dispatch.md`.
+
+## Open question (blocks choosing the trigger)
+
+What is the **latest published G6020 firmware version**? Our test unit is on
+1.070. Canon's JS support pages don't expose it to scraping; the panel "check
+for update" itself answers it (read-only, safe). Needed to know whether a panel
+download can even be triggered for interception.
 
 ## Status
 
