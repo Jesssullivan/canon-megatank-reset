@@ -189,8 +189,9 @@ staging_locations:
 
 win11_iso:
   filename: 'Win11_25H2_English_x64_v2.iso'
-  size_bytes: 8505430016                       # 7.92 GiB
+  size_bytes: 8471603200                       # 7.89 GiB (verified on neo + mbp-13)
   sha256: '768984706b909479417b2368438909440f2967ff05c6a9195ed2667254e465e3'
   acquired: '2026-05-28'
+  verified: '2026-05-29'                        # SHA matched byte-for-byte: neo == mbp-13 == pinned
   location: 'mbp-13:~/canon-tool-staging/iso/Win11_25H2_English_x64_v2.iso'
   source: 'https://www.microsoft.com/software-download/windows11'
