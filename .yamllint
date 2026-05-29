@@ -1,0 +1,16 @@
+---
+extends: default
+
+rules:
+  line-length: disable          # maintenance.yaml carries long pinned values/URLs
+  document-start: disable
+  comments-indentation: disable
+  truthy:
+    check-keys: false
+  comments:
+    min-spaces-from-content: 1
+  braces:
+    max-spaces-inside: 1
+  octal-values:
+    forbid-implicit-octal: false
+    forbid-explicit-octal: false

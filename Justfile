@@ -30,11 +30,13 @@ setup:
 # All static gates.
 check: lint typecheck yaml-lint ansible-lint
 
+# Python tools run via `uv run --extra dev` so they execute in the project env
+# with deps present (mypy needs structlog/pyusb importable to resolve types).
 lint:
-    cd {{ root }} && ruff check src tests
+    cd {{ root }} && uv run --extra dev ruff check src tests
 
 typecheck:
-    cd {{ root }} && mypy src
+    cd {{ root }} && uv run --extra dev mypy src
 
 format:
     cd {{ root }} && ruff format src tests
