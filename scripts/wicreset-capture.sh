@@ -83,6 +83,56 @@ case "$LABEL" in
 ║  is the free, no-key, no-reset dry run that proves the capture works.    ║' ;;
 esac
 
+# ─── finalize: stop tshark, restore ipp-usb, package + summarize ─────────────
+# Runs on either ENTER (TTY/human) or SIGTERM/SIGINT (headless/agent/CI), once.
+PIDFILE="/run/canon-tool/wicreset-capture-${LABEL}.pid"
+mkdir -p /run/canon-tool 2>/dev/null || true
+FINALIZED=""
+finalize() {
+  [ -n "$FINALIZED" ] && return 0
+  FINALIZED=1
+  trap - TERM INT
+  echo
+  echo "step 4: stopping tshark (pid=$TSHARK_PID) ..."
+  kill -INT "$TSHARK_PID" 2>/dev/null || true
+  sleep 2
+  wait "$TSHARK_PID" 2>/dev/null || true
+  rm -f "$PIDFILE"
+
+  if [ ! -s "$PCAP_TMP" ]; then
+    echo "error: pcap empty/missing at $PCAP_TMP" >&2
+    systemctl start ipp-usb
+    exit 7
+  fi
+
+  echo "step 5: chown + move → $PCAP_DEST ..."
+  chown "$CAPTURE_USER:$CAPTURE_USER" "$PCAP_TMP"
+  mv "$PCAP_TMP" "$PCAP_DEST"
+  echo "step 6: gzip -9 ..."
+  gzip -9 "$PCAP_DEST"
+  PCAP_DEST="${PCAP_DEST}.gz"
+
+  echo "step 7: restarting ipp-usb ..."
+  systemctl start ipp-usb
+  sleep 2
+  systemctl is-active --quiet ipp-usb && echo "       ipp-usb active ✓" \
+    || echo "       warning: ipp-usb NOT active — sudo systemctl status ipp-usb"
+
+  echo
+  echo "════════════════════════════════════════════════════════════════"
+  echo "capture complete: $PCAP_DEST"
+  echo "  size: $(stat -c %s "$PCAP_DEST") bytes (gzipped)"
+  echo
+  echo "next: rsync to neo, then  just canon-analyze <pcap>"
+  echo "  Success = bulk-OUT 0x03 + bulk-IN 0x86 present (baseline had ZERO 0x03)."
+  echo "  For a read capture: re-run 2-3x; identical transactions ⇒ deterministic."
+  echo "════════════════════════════════════════════════════════════════"
+  exit 0
+}
+trap 'finalize' TERM INT
+
+echo $$ > "$PIDFILE" 2>/dev/null || true
+
 cat <<MSG
 
 ╔════════════════════════════════════════════════════════════════════════╗
@@ -92,47 +142,16 @@ cat <<MSG
 ║    wine ~/canon-tool-staging/wicreset/PrinterPotty_WICReset.exe          ║
 ║    1. Select the Canon G6020 via USB connection                        ║
 ${ACTION_BLOCK}
-║                                                                        ║
-║  When the WICReset operation has fully completed, return here and       ║
-║  press ENTER to stop the capture.                                      ║
 ╚════════════════════════════════════════════════════════════════════════╝
 
 MSG
-read -r -p "Press ENTER when the WICReset operation is done and you want to stop tshark: " _
 
-# ─── Stop tshark + restore ipp-usb ────────────────────────────────────────────
-echo
-echo "step 4: stopping tshark (pid=$TSHARK_PID) ..."
-kill -INT "$TSHARK_PID" 2>/dev/null || true
-sleep 2
-wait "$TSHARK_PID" 2>/dev/null || true
-
-if [ ! -s "$PCAP_TMP" ]; then
-  echo "error: pcap empty/missing at $PCAP_TMP" >&2
-  systemctl start ipp-usb
-  exit 7
+# Stop on ENTER when attached to a TTY; otherwise wait for a stop signal so the
+# same script can be driven headless: sudo kill -TERM \$(cat "$PIDFILE")
+if [ -t 0 ]; then
+  read -r -p "Press ENTER when the WICReset operation is done, to stop tshark: " _
+  finalize
+else
+  echo "[headless] capturing. stop with:  sudo kill -TERM \$(cat $PIDFILE)   (pid $$)"
+  while true; do sleep 1; done
 fi
-
-echo "step 5: chown + move → $PCAP_DEST ..."
-chown "$CAPTURE_USER:$CAPTURE_USER" "$PCAP_TMP"
-mv "$PCAP_TMP" "$PCAP_DEST"
-echo "step 6: gzip -9 ..."
-gzip -9 "$PCAP_DEST"
-PCAP_DEST="${PCAP_DEST}.gz"
-
-echo "step 7: restarting ipp-usb ..."
-systemctl start ipp-usb
-sleep 2
-systemctl is-active --quiet ipp-usb && echo "       ipp-usb active ✓" \
-  || echo "       warning: ipp-usb NOT active — sudo systemctl status ipp-usb"
-
-# ─── Summary ─────────────────────────────────────────────────────────────────
-echo
-echo "════════════════════════════════════════════════════════════════"
-echo "capture complete: $PCAP_DEST"
-echo "  size: $(stat -c %s "$PCAP_DEST") bytes (gzipped)"
-echo
-echo "next: rsync to neo, then  just canon-analyze <pcap>"
-echo "  Success = bulk-OUT 0x03 + bulk-IN 0x86 present (baseline had ZERO 0x03)."
-echo "  For a read capture: re-run 2-3x; identical transactions ⇒ deterministic."
-echo "════════════════════════════════════════════════════════════════"
