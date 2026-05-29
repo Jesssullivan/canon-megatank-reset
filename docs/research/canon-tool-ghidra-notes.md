@@ -329,3 +329,42 @@ it passes to the IOCTL primitive. (`find_msgmap.py`, in progress.)
 
 Note: there is BOTH an "Ink Absorber Counter" (read/set the % value) and a
 "Clear Ink Counter" operation — the 5B00 reset is the absorber counter path.
+
+## Finding E — the absorber-reset call chain + operation payload (MAJOR)
+
+Followed the MFC message map from the "Set" button to the command dispatch:
+
+```
+button "Set" (id=1100 dlg137 / id=1015 dlg133)
+  -> FUN_0040b6c0 / FUN_0040d140   (identical handlers)
+       sel   = SendMessage(combo, CB_GETCURSEL)        // which absorber
+       check = SendMessage(checkbox, BM_GETCHECK)
+       payload[5] = { 0x00, 0x03, flags, 0x03, idx }
+            flags = 0x01, | 0x80 if checkbox checked   -> 0x01 or 0x81
+            idx   = DAT_0048295c[sel * 8]               // absorber index from table
+       FUN_0040ac60(dlg, 7, &payload)                   // group 7 = Ink Absorber Counter
+  -> FUN_0040ac60  (command dispatcher)
+       lParam = FUN_0040f4f0()                          // the protocol/transport object
+       FUN_0040a8a0(this, 7)                            // UI: mark operation 7 in progress
+       ... preamble sends via lParam->vtable[0x44] (6-byte mode block from DAT_004921f8/9)
+       (**(lParam->vtable + 0x48))(DAT_00494ca0, dev, param_2=payload, ...)   // TRANSMIT
+```
+
+**Absorber-counter-set operation data block (high confidence):**
+
+```
+00 03 <flags> 03 <idx>     flags ∈ {0x01, 0x81}   idx = absorber selector
+```
+
+This is the operation-specific data. The outer `[cmd, argHi, argLo]` usbscan
+IOCTL header (from `FUN_004302c0`) is applied by the protocol object's
+`vtable[0x48]` send method — two virtual-dispatch layers below the dispatcher
+(`FUN_0040f4f0` returns the object; `DAT_00494ca0` is the device/context handle
+passed as arg0). Comparison op: id=1152 (`FUN_0040c220`) uses group `0x37`,
+payload `00 02 01 0x45` — a different counter, confirming the `(group, data)`
+shape generalizes.
+
+Note the `param_2+3 == 'G'` (0x47) and `== 0x03` branches in `FUN_0040ac60`:
+the 4th payload byte (`0x03` here) is a sub-type the dispatcher switches on
+(0x03 path issues an extra 6-byte block + applies to non-PRO models). For the
+absorber set it is `0x03`, so that path runs.
