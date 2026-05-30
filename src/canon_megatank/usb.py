@@ -142,6 +142,30 @@ class ClaimedDevice:
             raise UsbAccessError("not yet entered context")
         return self._bulk_out_ep
 
+    # ─── Read-only transfer (the 0x22003c RECV equivalent) ──────────────────
+
+    def read_response(
+        self, request_header: bytes, *, timeout_ms: int = 5000, length: int = 64
+    ) -> bytes:
+        """Issue a RECV: write the 3-byte request header to the bulk-OUT
+        endpoint, then read the reply from bulk-IN.
+
+        This is the Linux equivalent of the Service Tool's ``0x22003c`` RECV
+        IOCTL (write ``[cmd][arg_hi][arg_lo]``, read the response back). It is
+        the ONLY transfer helper exposed — there is deliberately no
+        payload-write/reset method here; the reset path lives behind the safety
+        gates in ops.py / replay.py.
+
+        ``request_header`` is the 3-byte header built by
+        ``protocol.model.encode_recv_header``. Returns the raw reply bytes.
+        """
+        try:
+            self._dev.write(self.bulk_out_endpoint, request_header, timeout=timeout_ms)
+            reply = self._dev.read(self.bulk_in_endpoint, length, timeout=timeout_ms)
+        except usb.core.USBError as exc:
+            raise UsbAccessError(f"bulk RECV transfer failed: {exc}") from exc
+        return bytes(reply)
+
 
 @contextmanager
 def open_g6020(product_id: int = 0x1865) -> Iterator[ClaimedDevice]:

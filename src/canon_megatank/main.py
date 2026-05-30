@@ -114,9 +114,9 @@ def cmd_read(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     # Imported here so the module stays importable without pyusb present.
-    from .ops import read_counter
-    from .types import CanonToolError, PrinterFingerprint
-    from .usb import open_g6020
+    from .ops import read_counter  # noqa: PLC0415
+    from .types import CanonToolError, PrinterFingerprint  # noqa: PLC0415
+    from .usb import open_g6020  # noqa: PLC0415
 
     # Build the runtime fingerprint from the locked SSOT so the read goes
     # through the same UUID/firmware gate as any other op. (A production caller

@@ -9,11 +9,11 @@ no Canon printer required.
 from __future__ import annotations
 
 import pytest
-
 import usb.core
 import usb.util
-from canon_megatank.usb import CANON_VENDOR_ID, ClaimedDevice
+
 from canon_megatank.types import UsbAccessError
+from canon_megatank.usb import CANON_VENDOR_ID, ClaimedDevice
 
 
 class _FakeEndpoint:
@@ -125,9 +125,8 @@ def test_read_response_propagates_usb_error_as_usb_access_error() -> None:
             raise usb.core.USBError("pipe error")
 
     dev = _Boom()
-    with ClaimedDevice(dev) as cd:  # type: ignore[arg-type]
-        with pytest.raises(UsbAccessError):
-            cd.read_response(b"\x85\x00\x00")
+    with ClaimedDevice(dev) as cd, pytest.raises(UsbAccessError):  # type: ignore[arg-type]
+        cd.read_response(b"\x85\x00\x00")
 
 
 def test_endpoint_properties_raise_before_enter() -> None:
