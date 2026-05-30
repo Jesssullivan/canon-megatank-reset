@@ -83,20 +83,34 @@ usb_interface_layout:
 #   - `last_validated_at` — when this op was last successfully replayed against the named test unit
 
 supported:
-  # The absorber-reset path, mapped by R3 static analysis (TIN-1697). The exact
-  # wire_bytes are `pending-capture` because the Service Tool obfuscates them
-  # (see command_protocol.obfuscation) — they come from R1/R2 dynamic capture,
-  # validated against the firmware dispatch table (TIN-1699), before any replay.
+  # The absorber-reset path. Static RE of Service Tool v5103 (see
+  # docs/research/servicetool-v5103-static-re.md) recovered the full payload:
+  # the "EncCommService obfuscation" was a misread — the IOCTL primitive
+  # FUN_004302c0 memcpy's the payload to the wire VERBATIM (passthrough), so the
+  # exact bytes are statically derived, no capture/key needed. Status remains
+  # `derived-unvalidated` (not `verified`) until: (a) Lane C firmware
+  # dispatch-table cross-check, and (b) the physical reset on the real unit
+  # (after waste-ink pads). The payload below is the G-series FAMILY encoding;
+  # v5103 has no G6020 string, so G6020-applicability is the family hypothesis.
   absorber_reset:
     name: 'Ink Absorber Counter — Set/reset'
     risk: write-eeprom
-    status: pending-capture
+    status: derived-unvalidated              # derived statically; not yet physically validated
     operation_group: 7                       # FUN_0040ac60 group selector
     pre_transform_payload: '[00, 03, flags, 03, idx]'  # flags 0x01|0x81 (checkbox); idx = absorber selector
-    dialog_controls:
-      dlg_137_set_button_id: 1100
-      dlg_133_set_button_id: [1015, 1020, 1032]
-    byte_sequence: null                      # filled by R1/R2 capture, validated by TIN-1699
+    # Recovered literals (Service Tool v5103, label-confirmed):
+    payload_transform: passthrough           # FUN_004302c0: payload copied to wire unchanged
+    absorber_idx:                            # DAT_0048295c label map (sel -> idx -> name)
+      main: 0x07                             # "Main" — the 5B00 main ink absorber (reset target)
+      main_black: 0x01
+      main_color: 0x03
+      platen: 0x00
+      main_and_platen: 0x06
+    flags_default: 0x01                      # 0x81 if the dialog checkbox is set
+    derived_payload_main: '[00, 03, 01, 03, 07]'  # main-absorber reset (flags=0x01, idx=0x07)
+    session_preamble: '[12, 34, 00, 00, 01, 00]'  # 6-byte mode block via vtable[0x44], sent on mode change
+    header_cmd: 0x85                         # generic SEND; arg=0x0000 (identity rides in payload, not cmd)
+    byte_sequence: null                      # full on-wire frame; confirmed at physical-validation time
     captured_at: null
     last_validated_at: null
 
