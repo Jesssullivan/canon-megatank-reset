@@ -254,3 +254,39 @@ header blobs, same `FUN_004d2510` appender), sends via the RECV IOCTL primitive
   not yet ref-resolved); the sendcmd path itself shows local frame assembly with no
   inline cloud call — consistent with the key being a *gate/unlock* checked
   elsewhere, not a per-byte input to the frame. To verify next.
+
+---
+
+## T4 (2026-05-30): WICReset static RE hits its ceiling for the Canon literals
+
+Walked UP from the builders via xrefs + dumped the data globals
+(`.ghidra-work/callers.py` → `out/pp-callers.c`). Two findings redirect the plan:
+
+**1. The `service.sendcmd`/`readcmd` builder decompiled in T2 is the EPSON path.**
+The header globals it prepends are Epson markers — `DAT_009721d0` region holds
+`"@BDC PS\r\n"`, `"@BDC ST"`, `"@BDC ST2"` (Epson remote-mode, not Canon), and the
+surrounding vocab is Epson (`waste.query`, `waste.reset`, `WasteQuery`,
+`Core::EpsonInks`, counter id `#C00000`). `service.sendcmd` (`FUN_004f5820`) has
+**0 direct callers** → it's a C++ **virtual** method (vtable dispatch), which is
+why the `execute_set_command` RTTI string never ref-resolved. The Canon sender is
+the separate `PrinterCanonSTD` virtual class. (T2's TRANSPORT finding still
+stands — the Canon usbscan IOCTLs are real + two-tool-corroborated. What's
+reclassified is *which builder is Canon*.)
+
+**2. DECISIVE: the Canon G6020 command data is NOT in the WICReset binary.**
+Zero `G6000`/`G6020` strings anywhere in the 7.5 MB image. With WICReset's cloud
+stack (curl + bcrypt + TLS, "WIC Reset Connect"), the Canon per-model reset
+definition is **fetched from the server at runtime** (or held encrypted). So
+**static RE of WICReset cannot yield the literal G6020 bytes** — they aren't there.
+This confirms the T1/T2 cloud-gating risk.
+
+### Consequence — pivot the RE to the Canon Service Tool (offline oracle)
+The literal `cmd/arg/flags/idx` must come from a Canon-native, offline oracle.
+`canon-tool-ghidra-notes.md` Finding E already recovered (from Service Tool v5103):
+payload `[00, 03, flags, 03, idx]`, `flags = 0x01 | 0x80·checkbox`,
+`idx = DAT_0048295c[sel*8]` (absorber-index table), `group 7`, transmit via
+`vtable[0x48]`. What remains is **(a)** the literal `idx` table values and
+**(b)** the `EncCommService` transform applied before the wire — **both decompilable
+from the Service Tool binary, no key, no cloud**. Caveat: v5103 covers G-series ≤
+G4010; the absorber command is very likely chipset-family-shared, but a G6020-exact
+`idx` may need one confirmation. The pixma lineage is the cross-check.
