@@ -118,7 +118,7 @@ def read_counter(  # noqa: PLR0913 — gated read API: each kwarg is a distinct 
     ``fingerprint.verify_fingerprint_matches`` (imported lazily so this module
     stays importable without the SSOT present)."""
     if verify is None:
-        from .fingerprint import verify_fingerprint_matches
+        from .fingerprint import verify_fingerprint_matches  # noqa: PLC0415
 
         verify = verify_fingerprint_matches
     verify(runtime_fingerprint, printer_id)
