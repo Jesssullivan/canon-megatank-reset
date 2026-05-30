@@ -37,13 +37,31 @@ with open_program(None, project_location=PROJ, project_name=PROJ_NAME,
                   program_name=PROG_NAME, analyze=False) as flat:
     from ghidra.app.decompiler import DecompInterface
     from ghidra.util.task import ConsoleTaskMonitor
+    from ghidra.app.cmd.disassemble import DisassembleCommand
+    from ghidra.program.model.address import AddressSet
     prog = flat.getCurrentProgram()
-    print("CMR funcs in opened program:", prog.getFunctionManager().getFunctionCount())
     mem = prog.getMemory()
     refmgr = prog.getReferenceManager()
     fm = prog.getFunctionManager()
     mon = ConsoleTaskMonitor()
     minA = prog.getMinAddress()
+    print("CMR funcs in opened program:", fm.getFunctionCount())
+
+    # 0) FORCE DISASSEMBLY (the actual blocker on this BCB-style PE: Ghidra imports
+    #    sections/imports/symbols but never disassembles .text, leaving funcs==1 and
+    #    zero refs for the anchors to hook into). Idempotent: only run when the
+    #    saved project hasn't been disassembled yet.
+    if fm.getFunctionCount() < 1000:
+        for blk in mem.getBlocks():
+            if blk.isExecute() and blk.isInitialized():
+                print("CMR disasm block %s [%s-%s]" % (blk.getName(), blk.getStart(), blk.getEnd()))
+                try:
+                    DisassembleCommand(blk.getStart(),
+                                       AddressSet(blk.getStart(), blk.getEnd()), True).applyTo(prog, mon)
+                except Exception as e:
+                    print("CMR disasm err:", str(e))
+        flat.analyzeAll(prog)
+        print("CMR funcs after force-disasm:", fm.getFunctionCount())
 
     def all_occurrences(pattern):
         # FlatProgramAPI.findBytes(Address, String regex, int matchLimit) -> Address[]
