@@ -66,12 +66,32 @@ Raw (first 64 bytes):
 +020  05 00 00 00 cc 1c 47 00  06 00 00 00 d8 1c 47 00
 +030  07 00 00 00 8c 1c 47 00  00 00 00 00 94 1c 47 00
 ```
-The absorber selectors use **idx ∈ {0x00..0x07}**. The `idx` for the *main* ink
-absorber (the 5B00 counter) is the one bound to the absorber combo's default/first
-entry; resolving the exact `sel→absorber` label requires reading the label
-pointers (`0x471c94` etc.) which name each counter — a follow-up dump. **The
-candidate main-absorber idx is `0x00`** (sel 0), but this is NOT yet
-label-confirmed.
+The absorber selectors use **idx ∈ {0x00..0x07}**.
+
+### idx labels RESOLVED (follow-up, 2026-05-30)
+
+`ghidra/v5103_followup_extract.py` dereferenced each row's label pointer (the
+second u32 of the `{u32 idx; char* label}` struct). The `sel → (idx, name)` map:
+
+| sel | idx | label | | sel | idx | label |
+|----:|:---:|---|---|----:|:---:|---|
+| 0 | `0x00` | **Platen** | | 6 | `0x07` | **Main** |
+| 1 | `0x01` | **Main_Black** | | 12 | `0x06` | **Main&Platen** |
+| 2 | `0x03` | **Main_Color** | | 5 | `0x06` | All |
+| 3 | `0x04` | Platen_Away | | 13 | `0x02` | "0" |
+| 4 | `0x05` | Platen_Home | | 14/15 | … | "10"/"20" (numeric, other dialog) |
+
+**CORRECTION:** the earlier "candidate main idx=0x00" guess was WRONG — `0x00` is
+the **Platen**, not the main absorber. The **5B00 main ink absorber is `idx=0x07`
+("Main")**; `Main_Black=0x01`, `Main_Color=0x03`, `Main&Platen=0x06`. So the
+absorber-reset payload for the main counter is:
+
+```
+[ 0x00, 0x03, flags, 0x03, 0x07 ]      flags = 0x01 (or 0x81 with checkbox)
+```
+
+This is the literal G-series-family payload for the 5B00 main-absorber reset
+(label-confirmed). G6020-applicability is still the family hypothesis (§6).
 
 ## 3. EncCommService is the TRANSPORT class — NOT a payload obfuscator (KEY FINDING)
 
@@ -149,20 +169,27 @@ the physical reset on the real unit (after pads).
 
 **Now KNOWN (static, no key, no cloud):**
 - Payload: `[00, 03, flags, 03, idx]`, `flags ∈ {0x01, 0x81}`, `idx ∈ {0x00..0x07}`.
-- Candidate main-absorber `idx = 0x00` (sel 0) — **label-confirm pending**.
+- **Main-absorber `idx = 0x07` ("Main")** — label-confirmed (follow-up). So the
+  5B00 main-counter reset payload is `[00, 03, 0x01, 03, 0x07]` (or flags 0x81).
 - Transport: payload is **passthrough** (no EncCommService transform on group 7);
   frame = `[cmd][arg_hi][arg_lo][00,03,flags,03,idx]`, big-endian arg, `0x220038`.
 - 6-byte session preamble `12 34 00 00 01 00` precedes the transmit.
 
 **Still PENDING:**
-1. **Exact `(cmd, arg)`** for the group-7 transmit — decompile the slot-0x48
-   wrapper (the `*lParam + 0x48` target) to read the literal cmd/arg. (Generic
-   framing suggests `cmd=0x85`; confirm.)
-2. **Label-confirm the main-absorber `idx`** — dump the `DAT_0048295c` label
-   pointers (`0x471c94`…) to map `sel→counter name` and identify which idx is the
-   5B00 main absorber vs platen/secondary.
+1. **Exact `(cmd, arg)`** — the transmit is a C++ **virtual** call
+   (`(*lParam + 0x48)(...)`), and `FUN_004302c0` (the IOCTL primitive) has **0
+   direct callers** (reached only through the vtable), so the literal `(cmd, arg)`
+   can't be read by a direct caller decompile. The documented design is that
+   **operation identity rides in the payload, not the cmd byte** (maintenance.yaml
+   `command_protocol.wire_frame.note`), with the generic SEND `cmd=0x85, arg=0`.
+   So `cmd=0x85, arg=0x0000` is the working value; pinning it byte-exact needs
+   either resolving the concrete EncCommService vtable instance or the eventual
+   usbmon confirmation. **Not a blocker** — the payload (incl. idx=0x07) is the
+   operative content.
+2. ~~Label-confirm the main-absorber idx~~ — **DONE**: idx=0x07 = "Main".
 3. **G6020 confirmation** — family hypothesis (§6); resolved by Lane C firmware
    cross-check + the eventual physical reset.
 
-These three are tractable static follow-ups (1 and 2 are pure decompile/getBytes;
-3 is Lane C). None require the key or a capture.
+The reset payload is now fully recovered for the G-series family; only the
+(non-operative) header cmd/arg and the G6020-vs-family question remain, neither
+requiring the key.

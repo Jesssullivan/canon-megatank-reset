@@ -65,10 +65,23 @@ BULK_OUT_EP = 0x03
 BULK_IN_EP = 0x86
 """Bulk IN endpoint on interface 4 — the Linux equivalent of IOCTL_RECV."""
 
-# Absorber "Set" checkbox flags recovered from the Service Tool dialog handler
-# (maintenance.yaml::supported.absorber_reset.pre_transform_payload). 0x01 =
-# main absorber, 0x81 = main + platen (checkbox bit set).
+# Absorber "Set" flags byte recovered from the Service Tool dialog handler
+# (FUN_0040b6c0): base 0x01, OR 0x80 when the dialog checkbox is set → 0x01/0x81.
+# This is the checkbox bit, independent of which absorber is selected (that is the
+# idx byte below). See docs/research/servicetool-v5103-static-re.md.
 ABSORBER_FLAGS = (0x01, 0x81)
+
+# Absorber index values, label-confirmed from the Service Tool's DAT_0048295c
+# table (sel → idx → name). The 5B00 MAIN ink absorber is idx 0x07 ("Main").
+ABSORBER_IDX = {
+    "platen": 0x00,
+    "main_black": 0x01,
+    "main_color": 0x03,
+    "main_and_platen": 0x06,
+    "main": 0x07,
+}
+ABSORBER_MAIN_IDX = 0x07
+"""The 5B00 main ink absorber selector — the reset target (idx, not flags)."""
 
 U8_MAX = 0xFF
 U16_MAX = 0xFFFF

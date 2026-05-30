@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from canon_megatank.protocol.model import (
     ABSORBER_FLAGS,
+    ABSORBER_IDX,
+    ABSORBER_MAIN_IDX,
     BULK_IN_EP,
     BULK_OUT_EP,
     HEADER_LEN,
@@ -27,6 +29,8 @@ from canon_megatank.protocol.model import (
 
 __all__ = [
     "ABSORBER_FLAGS",
+    "ABSORBER_IDX",
+    "ABSORBER_MAIN_IDX",
     "BULK_IN_EP",
     "BULK_OUT_EP",
     "HEADER_LEN",

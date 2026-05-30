@@ -18,6 +18,8 @@ from hypothesis import strategies as st
 from canon_megatank.fingerprint import load_maintenance, locked_test_unit
 from canon_megatank.protocol import (
     ABSORBER_FLAGS,
+    ABSORBER_IDX,
+    ABSORBER_MAIN_IDX,
     BULK_IN_EP,
     BULK_OUT_EP,
     HEADER_LEN,
@@ -119,6 +121,23 @@ def test_absorber_payload_rejects_bad_flags(idx: int) -> None:
     """Only the recovered checkbox flags are legal."""
     with pytest.raises(ProtocolError):
         absorber_reset_payload(0x02, idx)
+
+
+def test_main_absorber_idx_is_seven() -> None:
+    """The 5B00 main absorber is idx 0x07 ("Main"), label-confirmed from the
+    Service Tool DAT_0048295c table. (Guards against regressing to the earlier
+    wrong guess of 0x00, which is actually the Platen.)"""
+    assert ABSORBER_MAIN_IDX == 0x07
+    assert ABSORBER_IDX["main"] == 0x07
+    assert ABSORBER_IDX["platen"] == 0x00  # the value we must NOT reset for 5B00
+
+
+def test_main_absorber_reset_payload_is_recovered_literal() -> None:
+    """The derived main-absorber reset payload matches the v5103 static finding:
+    [00, 03, 01, 03, 07] (flags=0x01 unchecked, idx=0x07 Main)."""
+    assert absorber_reset_payload(0x01, ABSORBER_MAIN_IDX) == bytes(
+        [0x00, 0x03, 0x01, 0x03, 0x07]
+    )
 
 
 @given(cmd=u8, arg=u16, f=flags, idx=u8)
