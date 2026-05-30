@@ -4,7 +4,9 @@ Safety-by-default:
 - Vendor allowlist (only Canon, idVendor=0x04a9, opens succeed).
 - Context-managed device claim so the kernel driver gets reattached on exit.
 - Bulk endpoint discovery (no hardcoded EP addresses).
-- No raw write helpers exposed — all ops go through ops.py / replay.py.
+- Read-only transfer exposed (`read_response`: write a 3-byte RECV request
+  header, read the reply). No raw payload-write / reset helper — those go
+  through ops.py / replay.py behind the safety gates.
 
 This is the ONLY module in printstack-canon allowed to import `usb`. All
 other code calls into `ClaimedDevice` (see below).
