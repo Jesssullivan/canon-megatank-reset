@@ -88,6 +88,12 @@ capture-read label="wicreset-read":
 capture-sync:
     rsync -av {{ capture_host }}:~/canon-tool-staging/captures/ {{ root }}/captures/incoming/
 
+# Intercept the G6020 panel-initiated firmware download (Lane C / approach A).
+# Operator drives the printer panel; this captures the plain-HTTP blob URL.
+# See docs/runbook/firmware-panel-intercept.md. Override INTERCEPT_IFACE/PRINTER_IP.
+firmware-intercept label="firmware-intercept":
+    cd {{ root }} && scripts/firmware-intercept.sh {{ label }}
+
 # Ghidra headless static RE of an oracle binary (Canon Service Tool / WICReset).
 # Binary + project DB stay gitignored under .ghidra-work/. Usage: just ghidra <script.py> <args...>
 ghidra script *args:
