@@ -111,3 +111,28 @@ blocked on that, not on the script.
 
 The reusable runner is `ghidra/pyghidra_xref_decompile.py` (string-, instruction-,
 and import-anchored decompile-by-reference).
+
+### ROOT CAUSE (2026-05-29 late): Ghidra imports but does NOT disassemble printerpotty.exe
+
+Definitive diagnostic (`pyghidra`, opening the analyzed program directly):
+`getFunctionCount() == 1`, **0 instructions**, yet the strings are present and the
+PE imports parsed (`DeviceIoControl` is an EXTERNAL symbol at `EXTERNAL:000000fa`
+with 1 reference from `0x008a0460`; the string sits at `0x0098b108`/`0x009ff40a`).
+
+So **auto-analysis loaded the PE (sections, imports, symbols) but never
+disassembled `.text`** — under *both* the 2 GB and 8 GB `-import` runs. Every prior
+"0 matches" traces to this: there are no instructions/functions for the string- or
+import-anchored search to hook into. (Also fixed a real bug along the way: the
+runner must open the existing program *by name*, not by binary path — passing a
+path re-imports a fresh, un-analyzed copy.)
+
+**Next step (task #12):** force disassembly, then re-anchor.
+1. Open the program and run **"Aggressive Instruction Finder"** + **"Decompiler
+   Parameter ID"** analyzers, or issue `DisassembleCommand` over the `.text`
+   block range (entry-point disassembly isn't propagating on this Delphi/BCB-style
+   PE). Save the program.
+2. Re-run `ghidra/pyghidra_xref_decompile.py` anchored on **`DeviceIoControl`
+   xrefs** → the USB I/O primitive → IOCTL + read/reset command bytes; and on
+   `clearCounters`/`execute_set_command` for dispatch.
+3. (If headless disassembly keeps refusing: open once in the Ghidra GUI, select
+   `.text`, press `D` to disassemble, re-run the headless anchor.)

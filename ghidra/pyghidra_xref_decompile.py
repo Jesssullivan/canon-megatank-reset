@@ -18,9 +18,12 @@ from pyghidra import open_program  # noqa: E402
 
 OUT = sys.argv[1]
 NEEDLES = [s for s in sys.argv[2].split(",") if s]
-EXE = os.environ["CMR_EXE"]
 PROJ = os.environ["CMR_PROJ"]
 PROJ_NAME = os.environ.get("CMR_PROJ_NAME", "program")
+# Open the EXISTING analyzed program by name (do NOT pass a binary path — that
+# re-imports a fresh, UN-analyzed copy => 0 functions). CMR_PROG_NAME is the
+# program name inside the project (e.g. 'printerpotty.exe').
+PROG_NAME = os.environ.get("CMR_PROG_NAME", "printerpotty.exe")
 print("CMR_START needles=%r" % NEEDLES)
 
 JByte = jpype.JArray(jpype.JByte)
@@ -30,11 +33,12 @@ def jbytes(bs):
     return JByte([((b + 128) % 256) - 128 for b in bs])
 
 
-with open_program(EXE, project_location=PROJ, project_name=PROJ_NAME,
-                  analyze=False) as flat:
+with open_program(None, project_location=PROJ, project_name=PROJ_NAME,
+                  program_name=PROG_NAME, analyze=False) as flat:
     from ghidra.app.decompiler import DecompInterface
     from ghidra.util.task import ConsoleTaskMonitor
     prog = flat.getCurrentProgram()
+    print("CMR funcs in opened program:", prog.getFunctionManager().getFunctionCount())
     mem = prog.getMemory()
     refmgr = prog.getReferenceManager()
     fm = prog.getFunctionManager()
