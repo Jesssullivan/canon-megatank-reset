@@ -71,3 +71,43 @@ helpers to **PyGhidra (Python 3)** — Ghidra 12's native scripting — or pin G
    key→permit gate, and whether the reset packet is cloud-derived or local.
 3. Cross-ref with the Canon Service Tool findings (group 7 absorber payload,
    `[cmd,arg_hi,arg_lo][payload]` framing) → the **T3 formal protocol model**.
+
+---
+
+## T2 progress (2026-05-29 eve): PyGhidra toolchain working; analysis incomplete
+
+**Tooling solved.** Ghidra 12 dropped Jython and routes `.py` to PyGhidra, which
+plain `analyzeHeadless` doesn't boot ("Ghidra was not started with PyGhidra").
+The working bridge is the **`pyghidra` pip package** driven standalone:
+
+```sh
+GHIDRA_INSTALL_DIR=<ghidra-12>/lib/ghidra \
+CMR_EXE=.ghidra-work/bin/printerpotty.exe CMR_PROJ=.ghidra-work/project \
+CMR_PROJ_NAME=wicreset-printerpotty \
+nix shell nixpkgs#jdk21 --command \
+  uv run --no-project --with pyghidra python ghidra/pyghidra_xref_decompile.py <out.c> <csv>
+```
+
+This **runs** (CMR_START/CMR_DONE) and the byte-search is verified — `flat.findBytes(addr, regex, limit)` finds the exact command strings: `execute_set_command`, `execute_get_command`, `clearCounters`, `ActionCanonDeviceClearCounters`, `service.sendcmd` (1 occurrence each), `Canon` (30), `DeviceIoControl` (2).
+
+**Blocker — the auto-analysis is incomplete.** Despite the strings + the
+`DeviceIoControl` import being present, **nothing resolves to a function**:
+- `getReferencesTo(string_addr)` → 0 (no wired string refs)
+- instruction-operand scan for the string VAs → 0 matches
+- `getReferencesTo(DeviceIoControl import)` (+ thunk hop) → 0 caller funcs
+
+So the `-import` default analysis on this 7.5 MB wxWidgets/curl binary did **not**
+build the reference graph (likely truncated). The function-level decompile is
+blocked on that, not on the script.
+
+### Next step (task #12 follow-on)
+1. **Re-analyze fully**: re-run with all analyzers to completion (PyGhidra
+   `analyze=True`, ample heap/time), or open interactively and let analysis finish,
+   then re-run the anchored decompile (script is ready + reusable).
+2. With refs wired, anchor on **`DeviceIoControl` import xrefs** → the single USB
+   I/O primitive (as on the Service Tool) → recover the IOCTL code + read/reset
+   command bytes; and on `clearCounters`/`execute_set_command` for the dispatch.
+3. Feed bytes into the T3 model + native pyusb tool.
+
+The reusable runner is `ghidra/pyghidra_xref_decompile.py` (string-, instruction-,
+and import-anchored decompile-by-reference).
