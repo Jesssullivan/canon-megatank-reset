@@ -222,10 +222,19 @@ win11_iso:
 
 command_protocol:
   transport:
-    windows: 'usbscan.sys via DeviceIoControl on \\.\UsbscanN (CreateFileA + SetupDi*)'
+    windows: 'usbscan.sys via DeviceIoControl on \\.\UsbscanN (CreateFileW + SetupDi*)'
     linux: 'pyusb bulk transfer on interface 4 (bulk OUT 0x03 / bulk IN 0x86)'
-    ioctl_send: 0x220038          # host -> printer (header + payload)
-    ioctl_receive: 0x22003c       # printer -> host (3-byte header, read response)
+    ioctl_send: 0x220038          # host -> printer (header + payload); out-buffer NULL
+    ioctl_receive: 0x22003c       # printer -> host (read response; 5000B out-buffer)
+    ioctl_read_variants: [0x220030, 0x220034]   # additional usbscan pipe IOCTLs seen in WICReset
+    # CORROBORATION (2026-05-30): WICReset (printerpotty.exe), reverse-engineered
+    # independently, uses the IDENTICAL usbscan IOCTL family over a CreateFileW
+    # handle (C++ USBPipe::do_open; handle cached at USBPipe+0x24):
+    #   FUN_0052ce40 -> 0x220038 SEND   FUN_0052cab0 -> 0x22003c RECV
+    #   FUN_0052d110 -> 0x220034        FUN_0052d4f0 -> 0x220030
+    # Two independent REs (Canon Service Tool + WICReset) agree on the transport.
+    # See docs/research/wicreset-static-re.md "T2 BREAKTHROUGH".
+    corroboration: 'two-tool (Service Tool + WICReset static RE)'
   wire_frame:
     layout: '[cmd:u8][arg_hi:u8][arg_lo:u8][payload...]'   # 3-byte big-endian header
     generic_cmds:
