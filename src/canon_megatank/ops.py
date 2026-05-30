@@ -82,7 +82,7 @@ def _summarize(payload: bytes, *, limit: int = 16) -> str:
     return f"{len(payload)}B:{head}{'…' if len(payload) > limit else ''}"
 
 
-def read_counter(
+def read_counter(  # noqa: PLR0913 — gated read API: each kwarg is a distinct safety/injection seam
     device: ReadableDevice,
     *,
     runtime_fingerprint: PrinterFingerprint,
