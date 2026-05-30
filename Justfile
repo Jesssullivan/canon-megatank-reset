@@ -65,6 +65,10 @@ test:
     cd {{ root }} && uv venv .venv && uv pip install -e ".[dev]"
     cd {{ root }} && .venv/bin/pytest tests/ -v
 
+# Property-test only the formal protocol model (T3) — fast, offline, no hardware.
+model:
+    cd {{ root }} && uv run --extra dev pytest tests/test_protocol_model.py -q
+
 # ─────────────────────────────────────────────
 # Protocol RE + capture (oracles; host-side on the capture host)
 # ─────────────────────────────────────────────
