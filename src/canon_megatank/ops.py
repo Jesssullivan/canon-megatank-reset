@@ -239,6 +239,7 @@ def reset_absorber(  # noqa: PLR0913 — each kwarg is a distinct safety gate / 
     runtime_fingerprint: PrinterFingerprint,
     eeprom_dump_done: bool,
     execute: bool = False,
+    accept_derived: bool = False,
     checkbox: bool = False,
     idx: int = ABSORBER_MAIN_IDX,
     timeout_ms: int = 5000,
@@ -258,8 +259,12 @@ def reset_absorber(  # noqa: PLR0913 — each kwarg is a distinct safety gate / 
          test_unit). Wrong unit → ``UnknownPrinterError``/``FingerprintMismatchError``.
       2. **Validation status** — ``maintenance.yaml::absorber_reset.status`` must
          be ``verified-captured``. While it is ``derived-unvalidated`` (bytes from
-         static RE, not yet physically confirmed; pads still full) → HARD STOP
-         with ``ResetNotValidatedError``.
+         static RE, not yet physically confirmed) → HARD STOP with
+         ``ResetNotValidatedError`` — UNLESS ``accept_derived=True``, the explicit
+         operator override for a dedicated debug/RE unit (a non-functional, 5B00-
+         locked unit that exists to be experimented on). The override bypasses
+         ONLY this gate; UUID isolation, EEPROM baseline, write budget, and the
+         lockfile all remain mandatory. It is recorded loudly in the outcome.
       3. **EEPROM baseline** — ``eeprom_dump_done`` must be True (the caller ran
          ``eeprom.dump_eeprom`` first). No rollback evidence → refuse.
       4. **Write budget** — ``charge`` (raises ``WriteBudgetExhaustedError`` at
@@ -300,14 +305,15 @@ def reset_absorber(  # noqa: PLR0913 — each kwarg is a distinct safety gate / 
     status = (
         load_doc(printer_id).get("supported", {}).get("absorber_reset", {}).get("status")
     )
-    if status != "verified-captured":
+    if status != "verified-captured" and not accept_derived:
         raise ResetNotValidatedError(
             f"absorber_reset.status is {status!r}, not 'verified-captured'. The "
-            "reset bytes are statically DERIVED but not yet physically validated "
-            "(and the waste-ink pads are not confirmed installed). Refusing to "
-            "write derived bytes to a printer. Promote the SSOT status only after "
-            "a successful, pads-installed physical-validation run."
+            "reset bytes are statically DERIVED but not yet physically validated. "
+            "Refusing to write derived bytes to a printer. Either promote the SSOT "
+            "status after a physical-validation run, or pass accept_derived=True to "
+            "override on a dedicated debug/RE unit (you accept writing derived bytes)."
         )
+    override_used = status != "verified-captured" and accept_derived
 
     # 3. mandatory EEPROM baseline
     if not eeprom_dump_done:
@@ -327,12 +333,15 @@ def reset_absorber(  # noqa: PLR0913 — each kwarg is a distinct safety gate / 
     written = device.send_command(frame, timeout_ms=timeout_ms)
     elapsed_ms = int((time.perf_counter() - start) * 1000)
 
+    summary = f"SENT frame={frame.hex()}"
+    if override_used:
+        summary += " [accept_derived OVERRIDE: wrote DERIVED-UNVALIDATED bytes]"
     outcome = OperationOutcome(
         op_name="reset_absorber",
         success=True,
         elapsed_ms=elapsed_ms,
         bytes_sent=written,
         bytes_received=0,
-        response_summary=f"SENT frame={frame.hex()}",
+        response_summary=summary,
     )
     return ResetPlan(spec=spec, frame=frame, executed=True, outcome=outcome)

@@ -181,6 +181,19 @@ def cmd_reset(argv: list[str]) -> int:
         action="store_true",
         help="set the Service Tool checkbox bit (flags 0x01 -> 0x81)",
     )
+    parser.add_argument(
+        "--accept-derived",
+        action="store_true",
+        help="OVERRIDE: write the statically-DERIVED (not physically-validated) "
+        "bytes. Only for a dedicated debug/RE unit. Bypasses ONLY the "
+        "validation-status gate; UUID/budget/lockfile stay enforced.",
+    )
+    parser.add_argument(
+        "--skip-eeprom-dump",
+        action="store_true",
+        help="OVERRIDE: proceed without a pre-flight EEPROM rollback dump "
+        "(the EEPROM-read command is not yet recovered). Debug/RE unit only.",
+    )
     parser.add_argument("--timeout-ms", type=int, default=5000)
     args = parser.parse_args(argv)
 
@@ -218,13 +231,24 @@ def cmd_reset(argv: list[str]) -> int:
     def _charge() -> None:
         charge_write(serial, cap=cap)
 
+    if args.accept_derived:
+        log.warning(
+            "reset.override",
+            accept_derived=True,
+            skip_eeprom_dump=args.skip_eeprom_dump,
+            note="writing DERIVED-UNVALIDATED bytes — debug/RE unit override",
+        )
+
     try:
         with write_lock(serial), open_g6020(product_id=args.product_id) as dev:
             plan = reset_absorber(
                 dev,
                 runtime_fingerprint=runtime,
-                eeprom_dump_done=False,  # CLI does not yet auto-dump; gate will refuse
+                # EEPROM rollback dump is unavailable until its read cmd is
+                # recovered; --skip-eeprom-dump explicitly acknowledges that.
+                eeprom_dump_done=args.skip_eeprom_dump,
                 execute=True,
+                accept_derived=args.accept_derived,
                 checkbox=args.checkbox,
                 timeout_ms=args.timeout_ms,
                 charge=_charge,
@@ -233,7 +257,12 @@ def cmd_reset(argv: list[str]) -> int:
         log.error("reset.refused", err_type=type(exc).__name__, err=str(exc))
         return 1
 
-    log.info("reset.ok", frame=plan.frame.hex(), executed=plan.executed)
+    log.info(
+        "reset.ok",
+        frame=plan.frame.hex(),
+        executed=plan.executed,
+        summary=plan.outcome.response_summary,
+    )
     return 0
 
 

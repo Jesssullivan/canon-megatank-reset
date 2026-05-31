@@ -195,3 +195,63 @@ def test_checkbox_flips_flags_to_0x81() -> None:
     frame = derive_reset_frame(spec)
     # payload byte 2 (after the 3-byte header) is flags
     assert frame[5] == 0x81
+
+
+# ─── accept_derived override (dedicated debug/RE unit) ────────────────────────
+
+
+def test_accept_derived_overrides_only_the_status_gate() -> None:
+    """accept_derived=True lets a derived-unvalidated unit write — but ONLY the
+    status gate is bypassed; the write still happens and is flagged loudly."""
+    dev = FakeWritable()
+    plan = reset_absorber(
+        dev,
+        runtime_fingerprint=FP,
+        eeprom_dump_done=True,
+        execute=True,
+        accept_derived=True,
+        verify=_ok_verify,
+        load_doc=_unvalidated_doc,  # still derived-unvalidated
+        charge=lambda: None,
+    )
+    assert plan.executed is True
+    assert dev.sent == [MAIN_FRAME]
+    assert "OVERRIDE" in plan.outcome.response_summary  # loud
+
+
+def test_accept_derived_still_enforces_uuid_gate() -> None:
+    """The override does NOT bypass UUID isolation — a wrong unit still refuses,
+    and nothing is written."""
+    dev = FakeWritable()
+
+    def _bad_verify(fp: PrinterFingerprint, pid: str) -> None:
+        raise UnknownPrinterError("wrong unit")
+
+    with pytest.raises(UnknownPrinterError):
+        reset_absorber(
+            dev,
+            runtime_fingerprint=FP,
+            eeprom_dump_done=True,
+            execute=True,
+            accept_derived=True,
+            verify=_bad_verify,
+            load_doc=_unvalidated_doc,
+        )
+    assert dev.sent == []
+
+
+def test_accept_derived_still_enforces_eeprom_gate() -> None:
+    """The override does NOT bypass the EEPROM baseline — without a dump (and
+    without the separate skip), it still refuses."""
+    dev = FakeWritable()
+    with pytest.raises(EepromDumpFailedError):
+        reset_absorber(
+            dev,
+            runtime_fingerprint=FP,
+            eeprom_dump_done=False,
+            execute=True,
+            accept_derived=True,
+            verify=_ok_verify,
+            load_doc=_unvalidated_doc,
+        )
+    assert dev.sent == []
