@@ -49,14 +49,23 @@ from .types import (
     ResetNotValidatedError,
 )
 
-# ─── PENDING Lane A ──────────────────────────────────────────────────────────
+# ─── Status-read command (recovered from v5103, not guessed) ─────────────────
 #
-# The maintenance command/argument that reads the G6020 absorber/waste-ink
-# counter. These are unknown until Lane A recovers them from a captured
-# "Read waste counters" exchange. They are intentionally ``None`` so that any
-# attempt to read without supplying them fails loudly rather than guessing.
-ABSORBER_READ_CMD: int | None = None  # PENDING Lane A — do NOT invent.
-ABSORBER_READ_ARG: int | None = None  # PENDING Lane A — do NOT invent.
+# The Service Tool's read poll loop (FUN_0040f500) issues a RECV via the
+# EncCommService wrapper: FUN_0042b030(handle, 0x86, 0, mode=1/RECV, buf, 0x14,
+# ...). So the generic STATUS READ is cmd=0x86, arg=0x0000, reading a 20-byte
+# (0x14) status frame. This is the same wrapper that sends with cmd=0x85
+# (FUN_0040fa60) — matching our reset header. See
+# docs/research/servicetool-v5103-read-re.md.
+#
+# CAVEAT: 0x86/0x0000 is the *generic status RECV* (a 20-byte frame the tool
+# polls). Whether that frame directly carries the absorber counter, or whether a
+# SEND must first select the counter, is not yet pinned — so this is the read
+# TRANSPORT command, validated safe to issue, not (yet) a proven "absorber value
+# at offset N" decode. Callers may still pass cmd=/arg= explicitly to override.
+ABSORBER_READ_CMD: int | None = 0x86  # generic status RECV (v5103 FUN_0040f500)
+ABSORBER_READ_ARG: int | None = 0x0000
+STATUS_READ_LEN = 0x14  # 20-byte status frame the Service Tool reads
 
 
 class ReadCommandNotDerivedError(CanonToolError):
@@ -109,7 +118,7 @@ def read_counter(  # noqa: PLR0913 — gated read API: each kwarg is a distinct 
     arg: int | None = None,
     decode: Callable[[bytes], int] | None = None,
     timeout_ms: int = 5000,
-    length: int = 64,
+    length: int = STATUS_READ_LEN,
     printer_id: str = "canon-g6020",
     op_name: str = "read_counter",
     verify: Callable[[PrinterFingerprint, str], None] | None = None,
