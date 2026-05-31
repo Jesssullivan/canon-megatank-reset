@@ -100,6 +100,12 @@ firmware-intercept label="firmware-intercept":
 vm-capture *args:
     cd {{ root }} && scripts/vm-capture.sh {{ args }}
 
+# HEADLESS capture VM (Lane B) — fully unattended Win11 (autounattend) + Ansible/
+# WinRM provisioning + PowerShell UIAutomation reset. See host/vm-capture/README.md.
+# Subcommands: build-iso | define | install | wait-winrm | provision | capture | all
+vm-capture-headless *args:
+    cd {{ root }} && scripts/vm-capture-headless.sh {{ args }}
+
 # Ghidra headless static RE of an oracle binary (Canon Service Tool / WICReset).
 # Binary + project DB stay gitignored under .ghidra-work/. Usage: just ghidra <script.py> <args...>
 ghidra script *args:

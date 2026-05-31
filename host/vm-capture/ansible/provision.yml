@@ -1,0 +1,71 @@
+---
+# Provision the Win11 capture guest over WinRM (Lane B headless, layer 2 — the
+# cloud-init-equivalent). Installs the Canon G6020 driver + the maintenance tool
+# + the UIAutomation reset driver, so a single `capture` run can drive a reset.
+#
+# Run from mbp-13 once WinRM is up (vm-capture-headless.sh waits for it):
+#   ansible-playbook -i inventory.yml provision.yml
+#
+# Artifacts the operator stages on the HOST first (paths are host-side, pushed
+# via win_copy): the Canon driver EXE, the Service Tool (or WICReset), under
+# ~/canon-tool-staging/win-payload/. They are NOT committed (no redistribution).
+#
+# Requires the `ansible.windows` + `community.windows` collections on the
+# control node (the nix devShell / mbp-13): ansible-galaxy collection install
+#   ansible.windows community.windows
+- name: Provision Canon capture guest
+  hosts: canon-win11
+  gather_facts: false
+  vars:
+    payload_src: "{{ lookup('env','HOME') }}/canon-tool-staging/win-payload"
+    guest_dir: 'C:\canon'
+    # The tool to drive: 'servicetool' (no key, preferred) or 'wicreset'.
+    reset_tool: servicetool
+  tasks:
+    - name: Wait for WinRM
+      ansible.builtin.wait_for_connection:
+        timeout: 600
+
+    - name: Make guest working dir
+      ansible.windows.win_file:
+        path: "{{ guest_dir }}"
+        state: directory
+
+    - name: Copy the staged Windows payload (driver, tool, scripts)
+      ansible.windows.win_copy:
+        src: "{{ payload_src }}/"
+        dest: "{{ guest_dir }}\\"
+      # The operator drops these into payload_src on the host beforehand:
+      #   G6020 driver installer, ServiceTool_v5302+.exe (or WICReset),
+      #   drive-reset.ps1 (copied from host/vm-capture/win/ — see below).
+
+    - name: Install the Canon G6020 print driver silently (if an installer is present)
+      ansible.windows.win_shell: |
+        $drv = Get-ChildItem 'C:\canon' -Filter '*MAS*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($drv) { Start-Process -FilePath $drv.FullName -ArgumentList '/quiet','/norestart' -Wait }
+        else { Write-Output 'no driver installer found - skipping (printer may already be usable)' }
+      register: drv_install
+      changed_when: "'no driver installer' not in drv_install.stdout"
+
+    - name: Confirm the G6020 is visible to Windows (passed-through USB)
+      ansible.windows.win_shell: |
+        Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -match 'VID_04A9&PID_1865' } |
+          Select-Object Status,FriendlyName,InstanceId | Format-List
+      register: pnp
+      changed_when: false
+
+    - name: Show printer detection
+      ansible.builtin.debug:
+        var: pnp.stdout_lines
+
+    - name: Stage the UIAutomation reset driver in the guest
+      ansible.windows.win_copy:
+        src: ../win/drive-reset.ps1
+        dest: 'C:\canon\drive-reset.ps1'
+
+    - name: Report ready
+      ansible.builtin.debug:
+        msg: >-
+          Guest provisioned. To capture: start host-side usbmon, then run
+          `C:\canon\drive-reset.ps1 -Tool {{ reset_tool }}` in the guest (or via
+          win_shell) to drive ONE reset while usbmon records the handshake.
