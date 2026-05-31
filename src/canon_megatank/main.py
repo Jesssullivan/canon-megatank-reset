@@ -226,10 +226,24 @@ def cmd_reset(argv: list[str]) -> int:
     # --execute: the write budget + lockfile wrap the gated op.
     serial = tu.get("serial_sticker") or tu["uuid"]
     cap = int(doc.get("write_budget", {}).get("cap", 50))
+    # The fleet host uses /run/canon-tool + /var/lib/canon-tool (created by the
+    # canon_tool_dev role). On an un-provisioned host those need root; the
+    # CANON_RUN_DIR / CANON_STATE_DIR env vars let the capture user point the
+    # lockfile + budget at writable paths (e.g. the staging dir).
+    import os  # noqa: PLC0415
+    from pathlib import Path  # noqa: PLC0415
+
     from .usb import open_g6020  # noqa: PLC0415
 
+    run_dir_env = os.environ.get("CANON_RUN_DIR")
+    state_dir_env = os.environ.get("CANON_STATE_DIR")
+    lock_kwargs = {"run_dir": Path(run_dir_env)} if run_dir_env else {}
+
     def _charge() -> None:
-        charge_write(serial, cap=cap)
+        if state_dir_env:
+            charge_write(serial, cap=cap, state_dir=Path(state_dir_env))
+        else:
+            charge_write(serial, cap=cap)
 
     if args.accept_derived:
         log.warning(
@@ -240,7 +254,7 @@ def cmd_reset(argv: list[str]) -> int:
         )
 
     try:
-        with write_lock(serial), open_g6020(product_id=args.product_id) as dev:
+        with write_lock(serial, **lock_kwargs), open_g6020(product_id=args.product_id) as dev:
             plan = reset_absorber(
                 dev,
                 runtime_fingerprint=runtime,
