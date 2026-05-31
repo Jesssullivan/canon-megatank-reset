@@ -61,9 +61,13 @@ for d in r.iter('disk'):
 nv = r.find('./os/nvram');
 if nv is not None: nv.text = f"{home}/canon-tool-staging/{name}_VARS.fd"
 dev = r.find('devices')
-# drop graphics/video (headless)
+# drop graphics/video + any spice-dependent channels (headless: no spice)
 for tag in ('graphics','video'):
     for e in dev.findall(tag): dev.remove(e)
+for ch in dev.findall('channel'):
+    tgt = ch.find('target')
+    if ch.get('type') == 'spicevmc' or (tgt is not None and 'spice' in (tgt.get('name') or '')):
+        dev.remove(ch)
 # add unattend CD as a 2nd cdrom (sdb)
 cd = ET.SubElement(dev,'disk',{'type':'file','device':'cdrom'})
 ET.SubElement(cd,'driver',{'name':'qemu','type':'raw'})
