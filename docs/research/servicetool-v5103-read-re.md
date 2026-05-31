@@ -72,5 +72,32 @@ command) cross-checked against the panel's reported counter.
 ## Wired in
 - `ops.ABSORBER_READ_CMD=0x86`, `ABSORBER_READ_ARG=0x0000`, `STATUS_READ_LEN=0x14`
   (was PENDING/None). `read_counter` default `length` → 20.
-- Tier-1 live read is now unblocked **without a VM**: `just read` issues the real
-  status RECV. (Still gated by the fingerprint/UUID check; read-only, safe.)
+
+## Live attempt + the SEND-then-poll discovery (2026-05-31)
+
+A live `[0x86][00][00]` cold RECV on the real G6020 (mbp-13) **timed out**
+(errno 110) — the write reached the device, but a bare RECV returned nothing.
+Tracing the sole caller `FUN_0040fb40` (the command sequencer) explains why:
+
+```c
+... FUN_0042b030(param_2, 0x85, 0, 0, local_2c0, dwBytes, .., 3000);   // line 606: SEND query (0x85 + body)
+... AfxBeginThread(FUN_0040f500, ...);                                  // line 691: THEN poll RECV (0x86) on a thread
+```
+
+So a read is **SEND `[0x85][00][00][query_body]` → poll RECV `[0x86]` → 20-byte
+reply** — not a bare RECV. The cold RECV timed out because no query SEND armed
+it. (`FUN_0040fb40` is heavily laced with TOOL_0006 anti-tamper noise —
+`uStack_* = 0x4c4f4f54` "TOOL"/"_000"/"_6_0"/"02" license-token strings +
+`thunk_FUN_0042d390` self-checks — interleaved to obscure the real flow; the
+operative calls are lines 606 + 691.)
+
+**Risk-tier consequence:** the read is no longer a pure no-write RECV — it needs
+a **query SEND** to the maintenance interface first. That SEND is read-intent
+(it's how the tool reads) and does NOT write EEPROM, but it is a write to iface 4,
+so it sits above Tier-0 (claim-only) on the safety ladder. The `query_body`
+(`local_2c0`) is built earlier in `FUN_0040fb40` under the anti-tamper noise —
+recovering its exact bytes is the next RE step, OR a usbmon capture of the free
+WICReset read would show the SEND+RECV pair directly (separate VM lane).
+
+**Status:** transport + read/send commands recovered; the read **session
+prologue (query SEND body)** is the remaining gap for a live read.
