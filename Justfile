@@ -94,6 +94,12 @@ capture-sync:
 firmware-intercept label="firmware-intercept":
     cd {{ root }} && scripts/firmware-intercept.sh {{ label }}
 
+# Win11 capture VM lifecycle (Lane B) — capture the real reset handshake from
+# the wire. Session-mode libvirt, no root. See host/vm-capture/README.md.
+# Subcommands: setup | install | snapshot | capture | start | stop | status | detach
+vm-capture *args:
+    cd {{ root }} && scripts/vm-capture.sh {{ args }}
+
 # Ghidra headless static RE of an oracle binary (Canon Service Tool / WICReset).
 # Binary + project DB stay gitignored under .ghidra-work/. Usage: just ghidra <script.py> <args...>
 ghidra script *args:

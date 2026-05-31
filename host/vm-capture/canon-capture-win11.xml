@@ -1,0 +1,73 @@
+<!--
+  Win11 capture VM for the Canon reset handshake (Lane B).
+  Session-mode libvirt (qemu:///session) — runs as the capture user, NO root.
+  The whole point is the <hostdev> below: the real G6020 (04a9:1865) is passed
+  through to the guest so the Windows Service Tool / WICReset drives it natively
+  while we capture the USB exchange (USBPcap in-guest, or usbmon on the host
+  before/after attach). See host/vm-capture/README.md.
+
+  Paths assume the EL10 (Rocky 10) layout on mbp-13:
+    emulator  /usr/libexec/qemu-kvm        (libvirt caps report this)
+    OVMF      /usr/share/edk2/ovmf/OVMF_CODE.fd + OVMF_VARS.fd
+    disk/iso  ~/canon-tool-staging/  (on /home, 767G free)
+  Adjust ${HOME} below to the absolute capture-user home before defining.
+-->
+<domain type='kvm'>
+  <name>canon-capture-win11</name>
+  <memory unit='GiB'>8</memory>
+  <currentMemory unit='GiB'>8</currentMemory>
+  <vcpu>4</vcpu>
+  <os firmware='efi'>
+    <type arch='x86_64' machine='q35'>hvm</type>
+    <loader readonly='yes' type='pflash'>/usr/share/edk2/ovmf/OVMF_CODE.fd</loader>
+    <nvram template='/usr/share/edk2/ovmf/OVMF_VARS.fd'>HOME_ABS/canon-tool-staging/canon-capture-win11_VARS.fd</nvram>
+    <boot dev='hd'/>
+    <boot dev='cdrom'/>
+  </os>
+  <features>
+    <acpi/>
+    <apic/>
+    <hyperv><relaxed state='on'/><vapic state='on'/><spinlocks state='on' retries='8191'/></hyperv>
+    <vmport state='off'/>
+    <smm state='on'/>
+  </features>
+  <cpu mode='host-passthrough' check='none' migratable='off'/>
+  <clock offset='localtime'>
+    <timer name='rtc' tickpolicy='catchup'/>
+    <timer name='hpet' present='no'/>
+    <timer name='hypervclock' present='yes'/>
+  </clock>
+  <devices>
+    <emulator>/usr/libexec/qemu-kvm</emulator>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2' discard='unmap'/>
+      <source file='HOME_ABS/canon-tool-staging/canon-capture-win11.qcow2'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source file='HOME_ABS/canon-tool-staging/iso/Win11_25H2_English_x64_v2.iso'/>
+      <target dev='sda' bus='sata'/>
+      <readonly/>
+    </disk>
+    <!-- virtio-win drivers ISO (optional; attach if Win setup can't see the
+         virtio disk). Download virtio-win.iso into the iso/ dir to use. -->
+    <controller type='usb' model='qemu-xhci' ports='8'/>
+    <interface type='user'>
+      <model type='virtio'/>
+    </interface>
+    <graphics type='spice' autoport='yes'>
+      <listen type='address' address='127.0.0.1'/>
+    </graphics>
+    <video><model type='qxl'/></video>
+    <!-- ════ THE POINT: pass the real Canon G6020 to the guest ════════════ -->
+    <hostdev mode='subsystem' type='usb' managed='yes'>
+      <source>
+        <vendor id='0x04a9'/>
+        <product id='0x1865'/>
+      </source>
+    </hostdev>
+    <channel type='spicevmc'><target type='virtio' name='com.redhat.spice.0'/></channel>
+    <memballoon model='virtio'/>
+  </devices>
+</domain>
