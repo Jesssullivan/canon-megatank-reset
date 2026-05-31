@@ -22,6 +22,25 @@ needing in-guest USBPcap (though that works too).
 - Win11 ISO staged: `~/canon-tool-staging/iso/Win11_25H2_English_x64_v2.iso`.
 - G6020 `04a9:1865` on bus 001; usbmon + dumpcap available (canon_tool_dev role).
 
+### HOST PREREQUISITE — SELinux permissive (one-time, root)
+The WinRM port-forward uses the **passt** backend (`/usr/bin/passt`), which
+SELinux (Enforcing on EL10) blocks from libvirt's session context
+(`cannot execute binary passt: Permission denied`, exit 126). mbp-13 is a
+dedicated lab box, so set SELinux permissive (lab convention supports a managed
+`selinux_state`; see the `lab` repo `group_vars/linux.yml`):
+```sh
+sudo setenforce 0   # runtime, no reboot — unblocks passt + USB hostdev
+sudo sed -i 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config   # persist
+```
+Permissive (not fully `disabled`) keeps AVC logging for diagnostics. This also
+clears the USB-passthrough SELinux path.
+
+### WinRM auth: PSRP (the correct internal paradigm)
+The Ansible connection is WinRM/PSRP (PowerShell Remoting) — the right native
+Windows-management auth, not an ad-hoc shim. The autounattend enables it
+(Basic+unencrypted is acceptable on this throwaway lab NAT; tighten to
+Kerberos/HTTPS if this ever leaves the lab).
+
 ## HEADLESS path (preferred) — fully unattended, three layers
 
 The layered IaC (your cloud-init-equivalent vision for Windows):
