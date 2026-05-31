@@ -4,9 +4,10 @@ Safety-by-default:
 - Vendor allowlist (only Canon, idVendor=0x04a9, opens succeed).
 - Context-managed device claim so the kernel driver gets reattached on exit.
 - Bulk endpoint discovery (no hardcoded EP addresses).
-- Read-only transfer exposed (`read_response`: write a 3-byte RECV request
-  header, read the reply). No raw payload-write / reset helper — those go
-  through ops.py / replay.py behind the safety gates.
+- Read transfer (`read_response`: write a 3-byte RECV header, read the reply).
+- Write transfer (`send_command`: the 0x220038 SEND equivalent) is exposed but
+  is a thin unconditional byte-pusher — ALL safety gating lives in
+  `ops.reset_absorber`, which is the only thing that may call it.
 
 This is the ONLY module in printstack-canon allowed to import `usb`. All
 other code calls into `ClaimedDevice` (see below).
@@ -165,6 +166,30 @@ class ClaimedDevice:
         except usb.core.USBError as exc:
             raise UsbAccessError(f"bulk RECV transfer failed: {exc}") from exc
         return bytes(reply)
+
+    # ─── Write transfer (the 0x220038 SEND equivalent) — GATED ──────────────
+
+    def send_command(self, frame: bytes, *, timeout_ms: int = 5000) -> int:
+        """Issue a SEND: write a full command ``frame`` to the bulk-OUT endpoint
+        (no reply read). This is the Linux equivalent of the ``0x220038`` SEND
+        IOCTL — the write path.
+
+        ⚠ This is the only method on ``ClaimedDevice`` that can mutate printer
+        state. It is intentionally a thin, unconditional byte-pusher: ALL safety
+        gating (UUID isolation, write budget, mandatory EEPROM dump,
+        derived-vs-validated status, lockfile, dry-run) lives in
+        ``ops.reset_absorber`` and MUST be passed before this is ever called.
+        Do not call this directly from CLI/handler code.
+
+        ``frame`` is the complete wire frame from
+        ``protocol.model.encode_send`` / ``derive_reset_frame``. Returns the
+        number of bytes written.
+        """
+        try:
+            written = self._dev.write(self.bulk_out_endpoint, frame, timeout=timeout_ms)
+        except usb.core.USBError as exc:
+            raise UsbAccessError(f"bulk SEND transfer failed: {exc}") from exc
+        return int(written)
 
 
 @contextmanager

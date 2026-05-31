@@ -51,6 +51,18 @@ class UsbAccessError(CanonToolError):
     the device claimed, or the udev rule + group membership isn't set up."""
 
 
+class ResetNotValidatedError(CanonToolError):
+    """An EEPROM-write reset was requested for execution, but the reset byte
+    sequence is still `derived-unvalidated` in maintenance.yaml (recovered by
+    static RE, not yet confirmed by a physical reset on the real unit).
+
+    This is the hard gate that keeps `--execute` from writing
+    statically-derived bytes to a printer before ground-truth. It clears only
+    when `supported.absorber_reset.status` is promoted to `verified-captured`
+    (after the physical-validation run, which itself is gated on the waste-ink
+    pads being installed)."""
+
+
 # ─── Dataclasses ─────────────────────────────────────────────────────────────
 
 

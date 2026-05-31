@@ -10,7 +10,7 @@ guessed counter command.
 from __future__ import annotations
 
 import pytest
-from hypothesis import given
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from canon_megatank.fingerprint import load_maintenance, locked_test_unit
@@ -83,6 +83,11 @@ def test_read_counter_guard_fires_when_command_unset() -> None:
 # ─── encode → transfer → decode round-trip ────────────────────────────────────
 
 
+# deadline=None: read_counter lazily imports verify_fingerprint_matches on first
+# call, so the first Hypothesis example carries a one-time cold-import cost that
+# trips the 200ms deadline (the logic is fast/deterministic — see the timing
+# variability 284ms→11ms). Disable the deadline for this transfer round-trip.
+@settings(deadline=None)
 @given(cmd=u8, arg=u16, payload=st.binary(min_size=0, max_size=60))
 def test_read_counter_request_header_is_exact(cmd: int, arg: int, payload: bytes) -> None:
     """The bytes written to the device are EXACTLY encode_recv_header(cmd, arg),
