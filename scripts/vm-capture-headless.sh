@@ -58,21 +58,36 @@ for d in r.iter('disk'):
     s = d.find('source')
     if s is not None and s.get('file','').endswith('canon-capture-win11.qcow2'):
         s.set('file', f"{home}/canon-tool-staging/{name}.qcow2")
-nv = r.find('./os/nvram');
+nv = r.find('./os/nvram')
 if nv is not None: nv.text = f"{home}/canon-tool-staging/{name}_VARS.fd"
 dev = r.find('devices')
-# drop graphics/video + any spice-dependent channels (headless: no spice)
-for tag in ('graphics','video'):
+# Disk lettering (all SATA so Win11 Setup sees the system disk without the
+# virtio-win driver — virtio gave an empty disk list):
+#   system disk vda -> sda ;  install ISO (was sda) -> sdb ;  unattend CD -> sdc.
+for d in dev.findall('disk'):
+    tgt = d.find('target')
+    if tgt is None:
+        continue
+    if tgt.get('dev') == 'vda':                       # system disk
+        tgt.set('dev', 'sda'); tgt.set('bus', 'sata')
+    elif tgt.get('dev') == 'sda':                     # install ISO cdrom -> sdb
+        tgt.set('dev', 'sdb'); tgt.set('bus', 'sata')
+# Drop spice graphics/video/channels, then add a VNC display with a SUPPORTED
+# video model (vga — qxl is rejected by this qemu: 'does not support video model
+# qxl'). Headless but observable via VNC + virsh screenshot/send-key.
+for tag in ('graphics', 'video'):
     for e in dev.findall(tag): dev.remove(e)
 for ch in dev.findall('channel'):
     tgt = ch.find('target')
     if ch.get('type') == 'spicevmc' or (tgt is not None and 'spice' in (tgt.get('name') or '')):
         dev.remove(ch)
-# add unattend CD as a 2nd cdrom (sdb)
+ET.SubElement(dev, 'graphics', {'type': 'vnc', 'port': '-1', 'autoport': 'yes', 'listen': '127.0.0.1'})
+_v = ET.SubElement(dev, 'video'); ET.SubElement(_v, 'model', {'type': 'vga'})
+# add unattend CD as a cdrom (sdc — sda/sdb are the system disk + install ISO)
 cd = ET.SubElement(dev,'disk',{'type':'file','device':'cdrom'})
 ET.SubElement(cd,'driver',{'name':'qemu','type':'raw'})
 ET.SubElement(cd,'source',{'file':unattend})
-ET.SubElement(cd,'target',{'dev':'sdb','bus':'sata'})
+ET.SubElement(cd,'target',{'dev':'sdc','bus':'sata'})
 ET.SubElement(cd,'readonly')
 # WinRM port-forward: host:WINRM -> guest:5985, via libvirt's NATIVE
 # <portForward> on the existing user interface with the passt backend
