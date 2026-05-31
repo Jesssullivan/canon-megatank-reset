@@ -22,7 +22,34 @@ needing in-guest USBPcap (though that works too).
 - Win11 ISO staged: `~/canon-tool-staging/iso/Win11_25H2_English_x64_v2.iso`.
 - G6020 `04a9:1865` on bus 001; usbmon + dumpcap available (canon_tool_dev role).
 
-## One-time setup (~1 hr, interactive — the only hands-on part)
+## HEADLESS path (preferred) — fully unattended, three layers
+
+The layered IaC (your cloud-init-equivalent vision for Windows):
+1. **autounattend.xml** (`unattend/`) — Win11 installs with zero clicks (TPM/
+   SecureBoot bypasses, disk, local admin `cap`, autologon) and its
+   FirstLogonCommands **enable WinRM** (the only bootstrap job).
+2. **Ansible over WinRM** (`ansible/provision.yml`) — installs the Canon driver +
+   the maintenance tool + the reset driver (the cloud-init layer).
+3. **PowerShell UIAutomation** (`win/drive-reset.ps1`) — drives the reset GUI by
+   control name (not pixels); discovery-first (`-Dump` prints the control tree).
+
+```sh
+# on mbp-13. Stage the Windows payload first (NOT committed — no redistribution):
+#   ~/canon-tool-staging/win-payload/  <- G6020 driver EXE + ServiceTool_v5302+.exe
+just vm-capture-headless all        # build-iso -> define -> install -> wait-winrm -> provision
+#   (Win install + WinRM is ~15-25m, unattended; `all` blocks on wait-winrm)
+just vm-capture-headless capture    # host usbmon + drive ONE reset via Ansible/PS
+```
+The ONLY potentially-interactive step is the reset *click*: `drive-reset.ps1`
+attempts it by control name, and if the closed-GUI's control names don't match
+the guesses it dumps the tree so you refine the selectors (or click once over a
+temporary VNC). Everything else — install, driver, tool, capture — is hands-off.
+
+> `drive-reset.ps1 -Dump` (run once via `ansible ... win_shell`) prints the live
+> control tree; paste it back and I'll pin the exact selectors so even the click
+> is automated.
+
+## Interactive fallback (SPICE) — if you prefer to drive it by hand
 ```sh
 # on mbp-13, in the repo:
 scripts/vm-capture.sh setup      # create qcow2 + NVRAM, define the session domain

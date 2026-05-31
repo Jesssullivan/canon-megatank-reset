@@ -1,0 +1,16 @@
+# Ansible inventory for the Win11 capture guest (Lane B headless).
+# The guest is on qemu user-mode NAT; libvirt forwards a host port to guest:5985.
+# vm-capture-headless.sh sets up the hostfwd (host 55985 -> guest 5985) and
+# fills in ansible_host/port. Connection is WinRM (the cloud-init-equiv layer).
+all:
+  hosts:
+    canon-win11:
+      ansible_host: 127.0.0.1
+      ansible_port: 55985
+      ansible_connection: winrm
+      ansible_user: cap
+      ansible_password: canon-cap
+      ansible_winrm_transport: basic
+      ansible_winrm_scheme: http
+      ansible_winrm_server_cert_validation: ignore
+      ansible_python_interpreter: "{{ ansible_playbook_python }}"
