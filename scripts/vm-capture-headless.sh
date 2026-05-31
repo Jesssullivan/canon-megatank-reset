@@ -74,12 +74,12 @@ ET.SubElement(cd,'driver',{'name':'qemu','type':'raw'})
 ET.SubElement(cd,'source',{'file':unattend})
 ET.SubElement(cd,'target',{'dev':'sdb','bus':'sata'})
 ET.SubElement(cd,'readonly')
-# qemu cmdline hostfwd: host:WINRM -> guest:5985 (user-mode NAT)
-q = ET.SubElement(r, f'{{{ns}}}commandline')
-ET.SubElement(q, f'{{{ns}}}arg', {'value':'-netdev'})
-ET.SubElement(q, f'{{{ns}}}arg', {'value':f'user,id=wfwd,hostfwd=tcp:127.0.0.1:{winrm}-:5985'})
-ET.SubElement(q, f'{{{ns}}}arg', {'value':'-device'})
-ET.SubElement(q, f'{{{ns}}}arg', {'value':'virtio-net,netdev=wfwd'})
+# WinRM port-forward: host:WINRM -> guest:5985. Use libvirt's NATIVE
+# <portForward> on the EXISTING user interface (NOT a 2nd raw -netdev, which qemu
+# rejects as a duplicate and crashes the monitor). libvirt 11.5 supports this.
+iface = dev.find("interface[@type='user']")
+pf = ET.SubElement(iface, 'portForward', {'proto':'tcp'})
+ET.SubElement(pf, 'range', {'start':str(winrm), 'to':'5985'})
 t.write(dst, xml_declaration=True, encoding='unicode')
 print("wrote", dst)
 PY
