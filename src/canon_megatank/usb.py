@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
-from typing import cast
+from typing import Any, cast
 
 import usb.core
 import usb.util
@@ -32,7 +32,14 @@ class ClaimedDevice:
     Use as a context manager — exit detaches and reattaches the kernel
     driver."""
 
-    def __init__(self, dev: usb.core.Device) -> None:
+    def __init__(
+        self,
+        dev: usb.core.Device,
+        *,
+        interface: int | None = None,
+        bulk_out_ep: int | None = None,
+        bulk_in_ep: int | None = None,
+    ) -> None:
         if dev.idVendor != CANON_VENDOR_ID:
             raise UsbAccessError(
                 f"refusing to open non-Canon device (vendor={dev.idVendor:#06x})"
@@ -42,6 +49,13 @@ class ClaimedDevice:
         self._interface_number: int | None = None
         self._bulk_in_ep: int | None = None
         self._bulk_out_ep: int | None = None
+        # When pinned (the maintenance lane), bind EXACTLY this interface and
+        # verify its endpoints — never auto-pick. The G6020 has bulk endpoints on
+        # interface 0 BEFORE interface 4, so first-match would claim the wrong
+        # lane. The SSOT pins iface 4 / OUT 0x03 / IN 0x86.
+        self._want_interface = interface
+        self._want_bulk_out = bulk_out_ep
+        self._want_bulk_in = bulk_in_ep
 
     def __enter__(self) -> ClaimedDevice:
         # Detach the kernel driver (ipp-usb or canon-cups) if it has the
@@ -61,46 +75,83 @@ class ClaimedDevice:
             raise UsbAccessError(f"could not set USB configuration: {exc}") from exc
 
         cfg = self._dev.get_active_configuration()
-        # Find the first interface with both bulk-IN and bulk-OUT endpoints.
-        for intf in cfg:
-            bulk_in = next(
+
+        def _bulk_eps(intf: Any) -> tuple[int | None, int | None]:  # pyusb iface is untyped
+            bin_ = next(
                 (
                     ep.bEndpointAddress
                     for ep in intf
-                    if usb.util.endpoint_direction(ep.bEndpointAddress)
-                    == usb.util.ENDPOINT_IN
-                    and usb.util.endpoint_type(ep.bmAttributes)
-                    == usb.util.ENDPOINT_TYPE_BULK
+                    if usb.util.endpoint_direction(ep.bEndpointAddress) == usb.util.ENDPOINT_IN
+                    and usb.util.endpoint_type(ep.bmAttributes) == usb.util.ENDPOINT_TYPE_BULK
                 ),
                 None,
             )
-            bulk_out = next(
+            bout = next(
                 (
                     ep.bEndpointAddress
                     for ep in intf
-                    if usb.util.endpoint_direction(ep.bEndpointAddress)
-                    == usb.util.ENDPOINT_OUT
-                    and usb.util.endpoint_type(ep.bmAttributes)
-                    == usb.util.ENDPOINT_TYPE_BULK
+                    if usb.util.endpoint_direction(ep.bEndpointAddress) == usb.util.ENDPOINT_OUT
+                    and usb.util.endpoint_type(ep.bmAttributes) == usb.util.ENDPOINT_TYPE_BULK
                 ),
                 None,
             )
-            if bulk_in is not None and bulk_out is not None:
-                self._interface_number = intf.bInterfaceNumber
-                self._bulk_in_ep = bulk_in
-                self._bulk_out_ep = bulk_out
-                try:
-                    usb.util.claim_interface(self._dev, self._interface_number)
-                except usb.core.USBError as exc:
+            return bin_, bout
+
+        # PINNED mode (the maintenance lane): bind EXACTLY the requested interface
+        # and verify its endpoints match the SSOT. The G6020 exposes bulk
+        # endpoints on interface 0 before interface 4, so first-match would claim
+        # the wrong lane and send the reset to the wrong endpoint.
+        if self._want_interface is not None:
+            for intf in cfg:
+                if intf.bInterfaceNumber != self._want_interface:
+                    continue
+                bulk_in, bulk_out = _bulk_eps(intf)
+                if bulk_in is None or bulk_out is None:
                     raise UsbAccessError(
-                        f"could not claim interface {self._interface_number}: {exc}"
-                    ) from exc
+                        f"interface {self._want_interface} has no bulk in+out pair"
+                    )
+                if self._want_bulk_out is not None and bulk_out != self._want_bulk_out:
+                    raise UsbAccessError(
+                        f"interface {self._want_interface} bulk-OUT is "
+                        f"{bulk_out:#04x}, expected {self._want_bulk_out:#04x} — "
+                        "wrong interface/descriptor; refusing to bind."
+                    )
+                if self._want_bulk_in is not None and bulk_in != self._want_bulk_in:
+                    raise UsbAccessError(
+                        f"interface {self._want_interface} bulk-IN is "
+                        f"{bulk_in:#04x}, expected {self._want_bulk_in:#04x} — "
+                        "wrong interface/descriptor; refusing to bind."
+                    )
+                self._bind(intf.bInterfaceNumber, bulk_in, bulk_out)
+                return self
+            raise UsbAccessError(
+                f"maintenance interface {self._want_interface} not found on device"
+            )
+
+        # AUTO mode (no pin): first interface with a bulk in+out pair. Used by
+        # callers that don't care which lane (e.g. simple probes / tests).
+        for intf in cfg:
+            bulk_in, bulk_out = _bulk_eps(intf)
+            if bulk_in is not None and bulk_out is not None:
+                self._bind(intf.bInterfaceNumber, bulk_in, bulk_out)
                 return self
 
         raise UsbAccessError(
             "no interface with bulk-IN + bulk-OUT endpoints found "
             "(is this really a Canon printer in normal mode?)"
         )
+
+    def _bind(self, interface: int, bulk_in: int, bulk_out: int) -> None:
+        """Record + claim the chosen interface and its endpoints."""
+        self._interface_number = interface
+        self._bulk_in_ep = bulk_in
+        self._bulk_out_ep = bulk_out
+        try:
+            usb.util.claim_interface(self._dev, interface)
+        except usb.core.USBError as exc:
+            raise UsbAccessError(
+                f"could not claim interface {interface}: {exc}"
+            ) from exc
 
     def __exit__(self, *exc_info: object) -> None:
         try:
@@ -192,10 +243,27 @@ class ClaimedDevice:
         return int(written)
 
 
+# The maintenance lane, pinned from maintenance.yaml::usb_interface_layout.
+# Hardcoded as the safe default here (the G6020 has bulk endpoints on iface 0
+# before iface 4, so auto-pick would grab the wrong lane); callers may override.
+MAINT_INTERFACE = 4
+MAINT_BULK_OUT = 0x03
+MAINT_BULK_IN = 0x86
+
+
 @contextmanager
-def open_g6020(product_id: int = 0x1865) -> Iterator[ClaimedDevice]:
-    """Locate the Canon G6020 (or family-compatible product id) and yield
-    a ClaimedDevice."""
+def open_g6020(
+    product_id: int = 0x1865,
+    *,
+    interface: int | None = MAINT_INTERFACE,
+    bulk_out_ep: int | None = MAINT_BULK_OUT,
+    bulk_in_ep: int | None = MAINT_BULK_IN,
+) -> Iterator[ClaimedDevice]:
+    """Locate the Canon G6020 (or family-compatible product id) and yield a
+    ClaimedDevice bound to the maintenance lane (interface 4, OUT 0x03 / IN 0x86)
+    by default. The endpoints are VERIFIED against the descriptor — a mismatch
+    refuses rather than binding the wrong interface. Pass ``interface=None`` to
+    auto-pick the first bulk in+out pair (probes/tests only)."""
     dev = usb.core.find(idVendor=CANON_VENDOR_ID, idProduct=product_id)
     if dev is None:
         raise UsbAccessError(
@@ -203,7 +271,9 @@ def open_g6020(product_id: int = 0x1865) -> Iterator[ClaimedDevice]:
             "check that the printer is powered on and the udev rule + "
             "printstack group membership are in place"
         )
-    with ClaimedDevice(dev) as cd:
+    with ClaimedDevice(
+        dev, interface=interface, bulk_out_ep=bulk_out_ep, bulk_in_ep=bulk_in_ep
+    ) as cd:
         yield cd
 
 
