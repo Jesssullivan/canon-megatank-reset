@@ -252,16 +252,21 @@ command_protocol:
   wire_frame:
     layout: '[cmd:u8][arg_hi:u8][arg_lo:u8][payload...]'   # 3-byte big-endian header
     generic_cmds:
-      send: 0x85
-      receive: 0x86
-    note: 'Operation identity is carried in the (transformed) data block, not the cmd byte.'
-  obfuscation:
+      send: 0x85       # CONFIRMED — v5103 FUN_0040fa60: FUN_0042b030(h,0x85,0,SEND,...)
+      receive: 0x86    # CONFIRMED — v5103 FUN_0040f500 read poll: (h,0x86,0,RECV,buf,0x14,..)
+    status_read_len: 0x14   # 20-byte status frame the RECV poll reads
+    note: 'Operation identity is carried in the data block, not the cmd byte. cmd 0x85/0x86 confirmed from two v5103 functions. See docs/research/servicetool-v5103-read-re.md.'
+  enccommservice:
     class: 'EncCommService'
+    payload_transform: passthrough   # CORRECTED (was "obfuscation"): the IOCTL
     notes: |
-      The Service Tool transforms/encodes the command data before the wire and
-      wraps the send path in anti-tamper checks (TOOL_0006_002 license tokens,
-      abort-on-failure). Replay must use captured encoded bytes verbatim, valid
-      iff the transform is deterministic per command (Phase-A differential check).
+      EncCommService is the TRANSPORT class, NOT a payload obfuscator. The IOCTL
+      primitive FUN_004302c0 copies the payload to the wire VERBATIM (see
+      servicetool-v5103-static-re.md), so no per-command transform stands between
+      the [cmd][arg][payload] frame and usbscan. The TOOL_0006 license/anti-tamper
+      checks gate WHETHER a command runs (FUN_0040fb40), not WHAT bytes it sends.
+      The transport object DAT_00494ee0 is an EncCommService instance
+      (FUN_0046c330 -> ctor FUN_0042aa20). Replay = the derived frame verbatim.
   dispatch_map:                   # button group selector -> operation (from FUN_0040ac60)
     group_7: 'Ink Absorber Counter (Set)'   # the 5B00 reset path
     group_0x37: 'other counter (id=1152 handler)'

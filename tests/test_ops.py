@@ -13,6 +13,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+import canon_megatank.ops as ops_mod
 from canon_megatank.fingerprint import load_maintenance, locked_test_unit
 from canon_megatank.ops import (
     ABSORBER_READ_ARG,
@@ -63,17 +64,23 @@ def _locked_runtime_fingerprint() -> PrinterFingerprint:
 # ─── PENDING guard: never guess the counter command ───────────────────────────
 
 
-def test_pending_defaults_are_unset() -> None:
-    """The module ships the absorber read (cmd, arg) as PENDING (None) — no
-    guessed values committed."""
-    assert ABSORBER_READ_CMD is None
-    assert ABSORBER_READ_ARG is None
+def test_read_command_is_the_recovered_status_recv() -> None:
+    """The status-read command was RECOVERED from v5103 (FUN_0040f500):
+    cmd=0x86, arg=0x0000 (generic RECV). Not a guess — see
+    docs/research/servicetool-v5103-read-re.md."""
+    assert ABSORBER_READ_CMD == 0x86
+    assert ABSORBER_READ_ARG == 0x0000
 
 
-def test_read_counter_guard_fires_when_command_unset() -> None:
-    """With no cmd/arg and PENDING defaults still None, the op refuses to run
-    and never touches the device."""
-    dev = FakeReadableDevice(reply=encode_send(0x85, 0x0000, b""))
+def test_read_counter_guard_fires_when_defaults_cleared(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The no-guess guard still holds: if the module defaults are cleared (and no
+    cmd/arg passed), the op refuses to run and never touches the device. Guards
+    against a future regression that drops the recovered command without a value."""
+    monkeypatch.setattr(ops_mod, "ABSORBER_READ_CMD", None)
+    monkeypatch.setattr(ops_mod, "ABSORBER_READ_ARG", None)
+    dev = FakeReadableDevice(reply=encode_send(0x86, 0x0000, b""))
     fp = _locked_runtime_fingerprint()
     with pytest.raises(ReadCommandNotDerivedError):
         read_counter(dev, runtime_fingerprint=fp)
