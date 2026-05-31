@@ -74,12 +74,17 @@ ET.SubElement(cd,'driver',{'name':'qemu','type':'raw'})
 ET.SubElement(cd,'source',{'file':unattend})
 ET.SubElement(cd,'target',{'dev':'sdb','bus':'sata'})
 ET.SubElement(cd,'readonly')
-# WinRM port-forward: host:WINRM -> guest:5985. Use libvirt's NATIVE
-# <portForward> on the EXISTING user interface (NOT a 2nd raw -netdev, which qemu
-# rejects as a duplicate and crashes the monitor). libvirt 11.5 supports this.
-iface = dev.find("interface[@type='user']")
-pf = ET.SubElement(iface, 'portForward', {'proto':'tcp'})
-ET.SubElement(pf, 'range', {'start':str(winrm), 'to':'5985'})
+# WinRM port-forward: host:WINRM -> guest:5985. Drop libvirt's <interface> and
+# provide the WHOLE NIC via qemu:commandline as ONE user netdev with hostfwd
+# (a 2nd netdev duplicates and crashes qemu; <portForward> needs the passt
+# backend which isn't installed). One netdev + one device = clean.
+for iface in dev.findall("interface"):
+    dev.remove(iface)
+q = ET.SubElement(r, f'{{{ns}}}commandline')
+ET.SubElement(q, f'{{{ns}}}arg', {'value':'-netdev'})
+ET.SubElement(q, f'{{{ns}}}arg', {'value':f'user,id=wfwd,hostfwd=tcp:127.0.0.1:{winrm}-:5985'})
+ET.SubElement(q, f'{{{ns}}}arg', {'value':'-device'})
+ET.SubElement(q, f'{{{ns}}}arg', {'value':'virtio-net-pci,netdev=wfwd'})
 t.write(dst, xml_declaration=True, encoding='unicode')
 print("wrote", dst)
 PY
