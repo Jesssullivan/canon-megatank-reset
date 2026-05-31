@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Tier-0 claim-only probe: bind the maintenance lane on the REAL G6020, confirm
-# endpoints, send ZERO maintenance bytes, release.
+# endpoints, send ZERO maintenance bytes, release. The safest possible
+# first-contact test — validates the interface-pinning USB stack against real
+# hardware without issuing any maintenance command. Run on the capture host
+# (mbp-13) with the canon_tool_dev role applied (usbmon group + scoped sudo for
+# the ipp-usb toggle). Restores ipp-usb on exit (office queue).
 set -euo pipefail
-cd ~/git/canon-megatank-reset
+cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null || echo ~/git/canon-megatank-reset)"
 
 echo "=== stop ipp-usb (scoped sudo) ==="
 sudo -n systemctl stop ipp-usb && echo "ipp-usb stopped" || { echo "sudo stop failed"; exit 3; }
