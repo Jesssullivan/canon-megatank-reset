@@ -157,11 +157,93 @@ def cmd_read(argv: list[str]) -> int:
     return 0
 
 
+def cmd_reset(argv: list[str]) -> int:
+    """`canon-megatank reset` — reset the 5B00 absorber counter. DRY-RUN by default.
+
+    Without ``--execute`` it only prints the exact derived wire frame and exits
+    (no USB write). ``--execute`` attempts the real write and passes through every
+    safety gate in ``ops.reset_absorber`` + a write-budget charge + a lockfile.
+    While the SSOT status is ``derived-unvalidated`` (current state — bytes are
+    statically derived, not physically confirmed, pads still full) ``--execute``
+    HARD-STOPS with ``ResetNotValidatedError``."""
+    _configure_logging()
+    log = structlog.get_logger(service="printstack-canon", version=__version__, op="reset")
+
+    parser = argparse.ArgumentParser(prog="canon-megatank reset")
+    parser.add_argument("--product-id", type=lambda s: int(s, 0), default=0x1865)
+    parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="actually write (default: dry-run print the frame only). Gated.",
+    )
+    parser.add_argument(
+        "--checkbox",
+        action="store_true",
+        help="set the Service Tool checkbox bit (flags 0x01 -> 0x81)",
+    )
+    parser.add_argument("--timeout-ms", type=int, default=5000)
+    args = parser.parse_args(argv)
+
+    from .lockfile import charge_write, write_lock  # noqa: PLC0415
+    from .ops import build_absorber_reset_spec, reset_absorber  # noqa: PLC0415
+    from .protocol import derive_reset_frame  # noqa: PLC0415
+    from .types import CanonToolError, PrinterFingerprint  # noqa: PLC0415
+
+    doc = load_maintenance()
+    fp = doc["protocol_fingerprint"]
+    tu = doc["test_unit"]
+    runtime = PrinterFingerprint(
+        uuid=tu["uuid"],
+        firmware_version=fp["printer_firmware_version"],
+        device_id_raw=fp.get("printer_device_id", ""),
+        cmd_set=tuple(fp.get("cmd_set", ())),
+    )
+
+    # Dry-run needs no hardware: show the operator the literal frame and stop.
+    if not args.execute:
+        frame = derive_reset_frame(build_absorber_reset_spec(checkbox=args.checkbox))
+        log.info(
+            "reset.dry_run",
+            frame=frame.hex(),
+            note="DRY-RUN — no USB write. Pass --execute to write (gated).",
+            status=doc.get("supported", {}).get("absorber_reset", {}).get("status"),
+        )
+        return 0
+
+    # --execute: the write budget + lockfile wrap the gated op.
+    serial = tu.get("serial_sticker") or tu["uuid"]
+    cap = int(doc.get("write_budget", {}).get("cap", 50))
+    from .usb import open_g6020  # noqa: PLC0415
+
+    def _charge() -> None:
+        charge_write(serial, cap=cap)
+
+    try:
+        with write_lock(serial), open_g6020(product_id=args.product_id) as dev:
+            plan = reset_absorber(
+                dev,
+                runtime_fingerprint=runtime,
+                eeprom_dump_done=False,  # CLI does not yet auto-dump; gate will refuse
+                execute=True,
+                checkbox=args.checkbox,
+                timeout_ms=args.timeout_ms,
+                charge=_charge,
+            )
+    except CanonToolError as exc:
+        log.error("reset.refused", err_type=type(exc).__name__, err=str(exc))
+        return 1
+
+    log.info("reset.ok", frame=plan.frame.hex(), executed=plan.executed)
+    return 0
+
+
 def run(argv: list[str] | None = None) -> int:
     """Console-script entrypoint. Dispatches subcommands; no args = service loop."""
     args = list(sys.argv[1:] if argv is None else argv)
     if args and args[0] == "read":
         return cmd_read(args[1:])
+    if args and args[0] == "reset":
+        return cmd_reset(args[1:])
     return _serve()
 
 

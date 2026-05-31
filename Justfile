@@ -126,16 +126,18 @@ host-dry:
 # ─────────────────────────────────────────────
 
 # Read the waste-ink counter over pyusb (read-only; safe).
-read:
-    @echo "TODO(T5): implement src/canon_megatank/ops.py read path"
+read *flags='':
+    cd {{ root }} && uv run --no-project python -m canon_megatank read {{ flags }}
 
-# Reset the counter (dry-run default; --execute writes, behind all safety gates).
-reset *flags='--dry':
-    @echo "TODO(T5): implement src/canon_megatank/ops.py + replay.py — flags: {{ flags }}"
+# Reset the 5B00 absorber counter. DRY-RUN by default (prints the derived frame,
+# no USB write). `just reset --execute` attempts the real write behind every
+# safety gate; while the SSOT status is derived-unvalidated it hard-stops.
+reset *flags='':
+    cd {{ root }} && uv run --no-project python -m canon_megatank reset {{ flags }}
 
 # Pre-flight EEPROM dump (mandatory before any write).
 eeprom-dump:
-    @echo "TODO(T5): implement src/canon_megatank/eeprom.py"
+    @echo "EEPROM-read (cmd,arg) is PENDING — dump_eeprom refuses to guess (see src/canon_megatank/eeprom.py)"
 
 # Fleet status across known units.
 fleet-status:

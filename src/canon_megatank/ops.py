@@ -1,10 +1,17 @@
-"""Read-only maintenance operations over the native pyusb transport (T5, safe subset).
+"""Maintenance operations over the native pyusb transport (T5).
 
-This module implements the *read* path only: build a RECV request header with the
-T3 formal model, push it over the claimed bulk endpoints, and decode the reply.
-It deliberately contains **no write / reset / EEPROM-write code** — the reset path
-is gated on T4 ground-truth (the literal absorber `cmd/arg/flags/idx`) and the
-physical waste-ink pads, and is out of scope here.
+Two ops:
+
+* ``read_counter`` — the *read* path (RECV): safe, no state change. The literal
+  counter ``(cmd, arg)`` is still PENDING and never guessed.
+* ``reset_absorber`` — the *write* path (SEND): the 5B00 absorber reset, built on
+  the statically-derived payload ``[00,03,flags,03,idx]`` (idx 0x07 = "Main").
+  It is **dry-run by default** and ``execute=True`` is HARD-GATED behind, in
+  order: UUID isolation, the `derived-unvalidated`→`verified-captured` status
+  promotion, a mandatory pre-flight EEPROM dump, the per-unit write budget, and
+  an in-flight lockfile. The derived bytes are NOT written to a real printer
+  until a physical-validation run promotes the SSOT status (itself gated on the
+  waste-ink pads). Until then ``execute=True`` raises ``ResetNotValidatedError``.
 
 Layering (one direction only):
 
@@ -25,10 +32,22 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
-from .protocol.model import decode_frame, encode_recv_header
-from .types import CanonToolError, OperationOutcome, PrinterFingerprint
+from .protocol.model import (
+    ABSORBER_FLAGS,
+    ABSORBER_MAIN_IDX,
+    AbsorberResetSpec,
+    decode_frame,
+    derive_reset_frame,
+    encode_recv_header,
+)
+from .types import (
+    CanonToolError,
+    OperationOutcome,
+    PrinterFingerprint,
+    ResetNotValidatedError,
+)
 
 # ─── PENDING Lane A ──────────────────────────────────────────────────────────
 #
@@ -159,3 +178,152 @@ def read_counter(  # noqa: PLR0913 — gated read API: each kwarg is a distinct 
         error=error,
     )
     return CounterReading(outcome=outcome, cmd=r_cmd, arg=r_arg, payload=payload, value=value)
+
+
+# ─── Write path: the absorber reset (gated, dry-run by default) ───────────────
+
+
+class WritableDevice(ReadableDevice, Protocol):
+    """A device that can also SEND. ``usb.ClaimedDevice`` satisfies this; tests
+    drive a fake recording the bytes that would be written."""
+
+    def send_command(self, frame: bytes, *, timeout_ms: int = ...) -> int: ...
+
+
+# The generic SEND header for group-7 (operation identity rides in the payload,
+# not the cmd byte — see servicetool-v5103-static-re.md §5). arg=0x0000.
+RESET_HEADER_CMD = 0x85
+RESET_HEADER_ARG = 0x0000
+
+
+@dataclass(frozen=True, slots=True)
+class ResetPlan:
+    """The fully-resolved absorber-reset, returned by ``reset_absorber`` whether
+    or not it executed. ``frame`` is the exact wire bytes
+    ``derive_reset_frame`` produced; ``executed`` says if they were sent."""
+
+    spec: AbsorberResetSpec
+    frame: bytes
+    executed: bool
+    outcome: OperationOutcome
+
+
+def build_absorber_reset_spec(
+    *, checkbox: bool = False, idx: int = ABSORBER_MAIN_IDX
+) -> AbsorberResetSpec:
+    """Build the reset spec for the main absorber (idx 0x07) by default.
+
+    ``checkbox`` selects flags 0x81 vs 0x01 (the Service Tool dialog checkbox).
+    ``idx`` defaults to the label-confirmed main absorber; override only with a
+    value from ``protocol.model.ABSORBER_IDX``."""
+    flags = 0x81 if checkbox else 0x01
+    if flags not in ABSORBER_FLAGS:  # invariant; AbsorberResetSpec re-validates too
+        raise CanonToolError(f"computed flags {flags:#04x} not in {ABSORBER_FLAGS!r}")
+    return AbsorberResetSpec(
+        cmd=RESET_HEADER_CMD, arg=RESET_HEADER_ARG, flags=flags, idx=idx
+    )
+
+
+def reset_absorber(  # noqa: PLR0913 — each kwarg is a distinct safety gate / injection seam
+    device: WritableDevice,
+    *,
+    runtime_fingerprint: PrinterFingerprint,
+    eeprom_dump_done: bool,
+    execute: bool = False,
+    checkbox: bool = False,
+    idx: int = ABSORBER_MAIN_IDX,
+    timeout_ms: int = 5000,
+    printer_id: str = "canon-g6020",
+    verify: Callable[[PrinterFingerprint, str], None] | None = None,
+    charge: Callable[[], None] | None = None,
+    load_doc: Callable[[str], dict[str, Any]] | None = None,
+) -> ResetPlan:
+    """Reset the 5B00 ink-absorber counter — DRY-RUN by default.
+
+    Always returns a :class:`ResetPlan` with the exact ``frame`` that would be
+    (or was) sent, so a dry run shows the operator the literal bytes.
+
+    ``execute=True`` actually writes, and ONLY after passing every gate, IN ORDER:
+
+      1. **UUID isolation** — ``verify`` (fingerprint match against the locked
+         test_unit). Wrong unit → ``UnknownPrinterError``/``FingerprintMismatchError``.
+      2. **Validation status** — ``maintenance.yaml::absorber_reset.status`` must
+         be ``verified-captured``. While it is ``derived-unvalidated`` (bytes from
+         static RE, not yet physically confirmed; pads still full) → HARD STOP
+         with ``ResetNotValidatedError``.
+      3. **EEPROM baseline** — ``eeprom_dump_done`` must be True (the caller ran
+         ``eeprom.dump_eeprom`` first). No rollback evidence → refuse.
+      4. **Write budget** — ``charge`` (raises ``WriteBudgetExhaustedError`` at
+         the cap). Charged BEFORE the write so an exhausted unit never writes.
+      5. **Lockfile** — the caller wraps this in ``lockfile.write_lock`` so two
+         ops can't race (passed by the CLI, not re-checked here).
+
+    The dependencies are injectable (``verify``/``charge``/``load_doc``) so the
+    full gate sequence is unit-testable without hardware or the SSOT.
+    """
+    spec = build_absorber_reset_spec(checkbox=checkbox, idx=idx)
+    frame = derive_reset_frame(spec)
+
+    if not execute:
+        outcome = OperationOutcome(
+            op_name="reset_absorber",
+            success=True,
+            elapsed_ms=0,
+            bytes_sent=0,
+            bytes_received=0,
+            response_summary=f"DRY-RUN frame={frame.hex()}",
+        )
+        return ResetPlan(spec=spec, frame=frame, executed=False, outcome=outcome)
+
+    # ── execute=True: run the gates in order ──────────────────────────────
+    # 1. UUID isolation
+    if verify is None:
+        from .fingerprint import verify_fingerprint_matches  # noqa: PLC0415
+
+        verify = verify_fingerprint_matches
+    verify(runtime_fingerprint, printer_id)
+
+    # 2. derived-unvalidated → verified-captured gate
+    if load_doc is None:
+        from .fingerprint import load_maintenance  # noqa: PLC0415
+
+        load_doc = load_maintenance
+    status = (
+        load_doc(printer_id).get("supported", {}).get("absorber_reset", {}).get("status")
+    )
+    if status != "verified-captured":
+        raise ResetNotValidatedError(
+            f"absorber_reset.status is {status!r}, not 'verified-captured'. The "
+            "reset bytes are statically DERIVED but not yet physically validated "
+            "(and the waste-ink pads are not confirmed installed). Refusing to "
+            "write derived bytes to a printer. Promote the SSOT status only after "
+            "a successful, pads-installed physical-validation run."
+        )
+
+    # 3. mandatory EEPROM baseline
+    if not eeprom_dump_done:
+        from .types import EepromDumpFailedError  # noqa: PLC0415
+
+        raise EepromDumpFailedError(
+            "no pre-flight EEPROM dump — run eeprom.dump_eeprom first. Refusing "
+            "to write without rollback evidence."
+        )
+
+    # 4. write budget (raises at cap, before the write)
+    if charge is not None:
+        charge()
+
+    # 5. (lockfile held by the caller) — perform the write
+    start = time.perf_counter()
+    written = device.send_command(frame, timeout_ms=timeout_ms)
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+
+    outcome = OperationOutcome(
+        op_name="reset_absorber",
+        success=True,
+        elapsed_ms=elapsed_ms,
+        bytes_sent=written,
+        bytes_received=0,
+        response_summary=f"SENT frame={frame.hex()}",
+    )
+    return ResetPlan(spec=spec, frame=frame, executed=True, outcome=outcome)
