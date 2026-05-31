@@ -25,13 +25,29 @@ descriptor exposes a bulk pair on interface 0 *before* interface 4, and the tool
 correctly bound iface 4 / `0x03` / `0x86` (the old first-match code would have
 grabbed iface 0). ipp-usb restored cleanly afterward.
 
-## Tier 1 — single counter READ (BLOCKED on the read command)
+## Tier 1 — single counter READ (read command recovered; needs session handshake)
 
-Stop ipp-usb → issue ONE RECV of the waste counter → decode the reply.
-Read-only: no EEPROM write, no reset, no key, no pads risk.
+Stop ipp-usb → issue the recovered status RECV (`cmd=0x86`, 20-byte frame) →
+decode. Read-only: no EEPROM write, no reset, no key, no pads risk.
 
-**Status: blocked.** The literal read `(cmd, arg)` for the G6020 counter is not
-yet derivable by static RE:
+**Live attempt 2026-05-31 (mbp-13):** the recovered `[0x86][00][00]` RECV reached
+the printer — the bulk-OUT write succeeded — but the bulk-IN read **timed out**
+(`errno 110`, nothing returned). This is real signal, not a tool bug: a **cold,
+bare RECV with no prior session state returns nothing**. The Service Tool's read
+is a *poll loop* (`FUN_0040f500`) that runs **after** a session is opened — it
+sends the 6-byte mode preamble (`12 34 00 00 01 00`, via vtable[0x44]) and
+likely an arming SEND before polling the RECV. So Tier-1 needs the **session
+handshake** replicated first, not just the bare read command. Recovering that
+handshake sequence (what `FUN_0040f500`'s caller does before the loop) is the
+next RE step. The transport + read command are correct; the missing piece is the
+open-session prologue.
+
+> Earlier note (superseded): the read command itself was thought un-derivable.
+> It WAS recovered (`0x86`, see servicetool-v5103-read-re.md) — the remaining gap
+> is the session handshake, below.
+
+The original "blocked" reasoning, for history — the literal read `(cmd, arg)`
+seemed un-derivable by static RE:
 - The Service Tool's read path is C++ **virtual-dispatched** — the IOCTL
   primitive `FUN_004302c0` has **0 direct callers**, and the WICReset-era
   `get_command`/`readcmd` string anchors do not exist in the Canon binary (they
