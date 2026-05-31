@@ -49,15 +49,30 @@ def _maintenance_config() -> _FakeConfiguration:
     return _FakeConfiguration([_FakeInterface(4, [out_ep, in_ep])])
 
 
+def _g6020_like_config() -> _FakeConfiguration:
+    """Mirrors the REAL G6020: interface 0 has a bulk in+out pair (0x07/0x88)
+    BEFORE the maintenance interface 4 (0x03/0x86). First-match auto-pick would
+    wrongly claim interface 0 — pinning must select interface 4."""
+    iface0 = _FakeInterface(0, [_FakeEndpoint(0x07, _BULK), _FakeEndpoint(0x88, _BULK)])
+    iface4 = _FakeInterface(4, [_FakeEndpoint(0x03, _BULK), _FakeEndpoint(0x86, _BULK)])
+    return _FakeConfiguration([iface0, iface4])
+
+
 class FakeDevice:
     """In-memory stand-in for ``usb.core.Device`` — only the bits ClaimedDevice
     touches. Records writes and serves a queued reply on read."""
 
-    def __init__(self, reply: bytes = b"", *, vendor: int = CANON_VENDOR_ID) -> None:
+    def __init__(
+        self,
+        reply: bytes = b"",
+        *,
+        vendor: int = CANON_VENDOR_ID,
+        config: _FakeConfiguration | None = None,
+    ) -> None:
         self.idVendor = vendor
         self.idProduct = 0x1865
         self.iSerialNumber = 0
-        self._config = _maintenance_config()
+        self._config = config if config is not None else _maintenance_config()
         self._reply = reply
         self.writes: list[tuple[int, bytes, int]] = []
         self.reads: list[tuple[int, int, int]] = []
@@ -135,3 +150,40 @@ def test_endpoint_properties_raise_before_enter() -> None:
         _ = cd.bulk_out_endpoint
     with pytest.raises(UsbAccessError):
         _ = cd.bulk_in_endpoint
+
+
+# ─── Interface pinning (the real-G6020 bug guard) ─────────────────────────────
+
+
+def test_pinning_selects_maintenance_interface_not_first_bulk() -> None:
+    """On a G6020-like device (iface 0 has bulk endpoints before iface 4),
+    pinning interface=4 binds iface 4 / 0x03 / 0x86 — NOT the first bulk pair."""
+    dev = FakeDevice(config=_g6020_like_config())
+    with ClaimedDevice(  # type: ignore[arg-type]
+        dev, interface=4, bulk_out_ep=0x03, bulk_in_ep=0x86
+    ) as cd:
+        assert cd.bulk_out_endpoint == 0x03
+        assert cd.bulk_in_endpoint == 0x86
+
+
+def test_auto_pick_would_grab_the_wrong_interface() -> None:
+    """Documents WHY pinning matters: with no pin, auto-pick claims iface 0's
+    bulk pair (0x07/0x88) — the wrong lane. This is the bug pinning prevents."""
+    dev = FakeDevice(config=_g6020_like_config())
+    with ClaimedDevice(dev, interface=None) as cd:  # type: ignore[arg-type]
+        assert cd.bulk_out_endpoint == 0x07  # iface 0 — NOT the maintenance lane
+
+
+def test_pinning_refuses_on_endpoint_mismatch() -> None:
+    """If the pinned interface's endpoints don't match the expected maintenance
+    endpoints, refuse to bind rather than talk to the wrong endpoint."""
+    dev = FakeDevice(config=_g6020_like_config())
+    with pytest.raises(UsbAccessError):
+        # interface 0 exists but its bulk-OUT is 0x07, not the expected 0x03
+        ClaimedDevice(dev, interface=0, bulk_out_ep=0x03, bulk_in_ep=0x86).__enter__()  # type: ignore[arg-type]
+
+
+def test_pinning_refuses_when_interface_absent() -> None:
+    dev = FakeDevice(config=_maintenance_config())  # only iface 4
+    with pytest.raises(UsbAccessError):
+        ClaimedDevice(dev, interface=9, bulk_out_ep=0x03, bulk_in_ep=0x86).__enter__()  # type: ignore[arg-type]
