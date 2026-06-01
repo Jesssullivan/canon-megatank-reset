@@ -93,6 +93,13 @@ ET.SubElement(cd,'readonly')
 # <portForward> on the existing user interface with the passt backend
 # (/usr/bin/passt present). This avoids the raw-qemu 2nd-netdev crash.
 iface = dev.find("interface[@type='user']")
+# Force the NIC to e1000e: Win11 ships the Intel driver in-box but has NO
+# virtio-net driver, so a virtio NIC comes up with no IP -> passt has no guest
+# address to forward to -> WinRM (healthy on guest-localhost) is unreachable and
+# every win_ping resets. e1000e gets a passt DHCP lease immediately.
+_m = iface.find('model')
+if _m is None: _m = ET.SubElement(iface, 'model')
+_m.set('type', 'e1000e')
 ET.SubElement(iface, 'backend', {'type':'passt'})
 pf = ET.SubElement(iface, 'portForward', {'proto':'tcp'})
 ET.SubElement(pf, 'range', {'start':str(winrm), 'to':'5985'})
