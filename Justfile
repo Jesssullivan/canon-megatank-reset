@@ -78,6 +78,16 @@ model:
 analyze pcap:
     cd {{ root }} && uv run --no-project python -m canon_megatank.pcap {{ pcap }}
 
+# Annotated control-transfer + bulk extraction from a usbmon pcap (Lane C
+# post-capture pipeline). Pulls EVERY EP0 control transfer to/from the
+# service-mode device (bmRequestType/bRequest/wValue/wIndex/data + responses),
+# flags the absorber-reset frame, and emits an ordered annotated sequence.
+# Pass extra args after the pcap, e.g. `--device-address 42`, `--replay-snippet`,
+# `--json`. Requires tshark (lives on the capture host mbp-13).
+# Usage: just parse-capture captures/<file>.pcapng [--device-address N]
+parse-capture pcap *args:
+    cd {{ root }} && python3 scripts/parse-wicreset-capture.py {{ pcap }} {{ args }}
+
 # Capture a FREE WICReset "Read waste counters" on the capture host (no key).
 # Drives the headless harness; pcap lands on the capture host's staging dir.
 # Usage: just capture-read [label]
@@ -146,6 +156,14 @@ read *flags='':
 # safety gate; while the SSOT status is derived-unvalidated it hard-stops.
 reset *flags='':
     cd {{ root }} && uv run --no-project python -m canon_megatank reset {{ flags }}
+
+# Replay the captured EP0 control-transfer reset (WICReset service-mode path).
+# DRY-RUN by default (resolves the SSOT control_sequence, prints the transfers,
+# no USB). `just replay-control --execute` drives them behind every safety gate;
+# while the SSOT status is derived-unvalidated (the sequence is a placeholder)
+# it hard-stops. See docs/runbook/wicreset-capture-analysis-pipeline.md.
+replay-control *flags='':
+    cd {{ root }} && uv run --no-project python -m canon_megatank replay-control {{ flags }}
 
 # Pre-flight EEPROM dump (mandatory before any write).
 eeprom-dump:

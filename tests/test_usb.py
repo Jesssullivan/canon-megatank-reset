@@ -76,6 +76,7 @@ class FakeDevice:
         self._reply = reply
         self.writes: list[tuple[int, bytes, int]] = []
         self.reads: list[tuple[int, int, int]] = []
+        self.ctrls: list[tuple[int, int, int, int, bytes | int, int]] = []
 
     # Configuration / driver lifecycle ------------------------------------
     def is_kernel_driver_active(self, _iface: int) -> bool:
@@ -95,6 +96,23 @@ class FakeDevice:
     def read(self, endpoint: int, length: int, timeout: int) -> bytes:
         self.reads.append((endpoint, length, timeout))
         return self._reply
+
+    # Control transfer (EP0) ----------------------------------------------
+    def ctrl_transfer(  # noqa: PLR0913 — pyusb's ctrl_transfer signature (5 setup fields)
+        self,
+        bmRequestType: int,
+        bRequest: int,
+        wValue: int,
+        wIndex: int,
+        data_or_wLength: bytes | int,
+        timeout: int = 5000,
+    ) -> bytes | int:
+        self.ctrls.append(
+            (bmRequestType, bRequest, wValue, wIndex, data_or_wLength, timeout)
+        )
+        if bmRequestType & 0x80:  # IN: return canned reply bytes
+            return self._reply
+        return len(data_or_wLength) if isinstance(data_or_wLength, (bytes, bytearray)) else 0
 
 
 @pytest.fixture(autouse=True)
@@ -187,3 +205,38 @@ def test_pinning_refuses_when_interface_absent() -> None:
     dev = FakeDevice(config=_maintenance_config())  # only iface 4
     with pytest.raises(UsbAccessError):
         ClaimedDevice(dev, interface=9, bulk_out_ep=0x03, bulk_in_ep=0x86).__enter__()  # type: ignore[arg-type]
+
+
+# ─── EP0 control transfer (the WICReset service-mode transport) ───────────────
+
+
+def test_control_transfer_out_passes_data_and_returns_empty() -> None:
+    """A vendor control-OUT (the captured reset) forwards the exact setup +
+    data to ctrl_transfer and returns b'' (OUT has no read payload)."""
+    dev = FakeDevice()
+    data = bytes([0x00, 0x03, 0x01, 0x03, 0x07])
+    with ClaimedDevice(dev) as cd:  # type: ignore[arg-type]
+        got = cd.control_transfer(0x40, 0x85, 0x0000, 0x0000, data, timeout_ms=1234)
+    assert got == b""
+    assert dev.ctrls == [(0x40, 0x85, 0x0000, 0x0000, data, 1234)]
+
+
+def test_control_transfer_in_returns_reply_bytes() -> None:
+    """A class control-IN (1284-id / status read) passes the read length and
+    returns the device reply bytes."""
+    reply = bytes([0x10, 0x20, 0x30])
+    dev = FakeDevice(reply=reply)
+    with ClaimedDevice(dev) as cd:  # type: ignore[arg-type]
+        got = cd.control_transfer(0xA1, 0x00, 0x0000, 0x0000, 1024)
+    assert got == reply
+    assert dev.ctrls == [(0xA1, 0x00, 0x0000, 0x0000, 1024, 5000)]
+
+
+def test_control_transfer_propagates_usb_error() -> None:
+    class _Boom(FakeDevice):
+        def ctrl_transfer(self, *a: object, **k: object) -> bytes | int:
+            raise usb.core.USBError("pipe stall")
+
+    dev = _Boom()
+    with ClaimedDevice(dev) as cd, pytest.raises(UsbAccessError):  # type: ignore[arg-type]
+        cd.control_transfer(0x40, 0x85, 0x0000, 0x0000, b"\x00")

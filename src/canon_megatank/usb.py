@@ -242,6 +242,60 @@ class ClaimedDevice:
             raise UsbAccessError(f"bulk SEND transfer failed: {exc}") from exc
         return int(written)
 
+    # ─── EP0 control transfer (the WICReset service-mode transport) — GATED ───
+
+    def control_transfer(  # noqa: PLR0913 — mirrors the USB setup packet (5 wire fields)
+        self,
+        bm_request_type: int,
+        b_request: int,
+        w_value: int,
+        w_index: int,
+        data_or_length: bytes | int,
+        *,
+        timeout_ms: int = 5000,
+    ) -> bytes:
+        """Issue a single USB control transfer on EP0 (the default endpoint).
+
+        This is the Linux equivalent of WICReset's service-mode transport: the
+        real working absorber-reset path is a vendor control-OUT on EP0
+        (``bmRequestType=0x40 bRequest=0x85 wValue=0 wIndex=0
+        data=[00 03 01 03 07]``), with class control-IN reads
+        (``0xA1/0x00`` 1284-id, ``0xA1/0x01`` status) framing it. EP0 is always
+        available once the configuration is set — no interface claim or bulk
+        endpoint is needed (the reset is addressed to ``wIndex`` interface 0).
+
+        ⚠ Like :meth:`send_command`, this is a thin, unconditional byte-pusher
+        for the WRITE direction. A vendor control-OUT mutates printer state. ALL
+        safety gating (UUID isolation, validated-status, EEPROM dump, write
+        budget, lockfile, dry-run) lives in ``ops.replay_control_sequence`` and
+        MUST pass before this is reached. Do not call directly from CLI/handler
+        code for any OUT transfer.
+
+        ``data_or_length`` is the OUT data bytes (host→device) when the direction
+        bit of ``bm_request_type`` is clear, or the IN read length (an int) when
+        it is set. Returns the bytes read on an IN transfer; on an OUT transfer
+        returns ``b""`` (pyusb returns the count, which we discard here).
+        """
+        try:
+            ret = self._dev.ctrl_transfer(
+                bm_request_type,
+                b_request,
+                w_value,
+                w_index,
+                data_or_length,
+                timeout=timeout_ms,
+            )
+        except usb.core.USBError as exc:
+            raise UsbAccessError(
+                f"control transfer failed "
+                f"(bmRequestType={bm_request_type:#04x}, bRequest={b_request:#04x}, "
+                f"wValue={w_value:#06x}, wIndex={w_index:#06x}): {exc}"
+            ) from exc
+        # IN transfers return an array of bytes; OUT transfers return an int count.
+        if isinstance(ret, int):
+            return b""
+        return bytes(ret)
+
 
 # The maintenance lane, pinned from maintenance.yaml::usb_interface_layout.
 # Hardcoded as the safe default here (the G6020 has bulk endpoints on iface 0

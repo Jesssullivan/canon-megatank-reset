@@ -1,0 +1,48 @@
+# Sidecar metadata for ctrl-reset-sample-20260601.pcapng.gz
+#
+# Sample/validation fixture for the Lane C post-capture pipeline
+# (scripts/parse-wicreset-capture.py). A usbmon capture of an EP0
+# control-transfer absorber-reset REHEARSAL against the G6020 in service mode
+# (idProduct 0x12fe). It contains the exact transport shape the parser must
+# extract: the vendor control-OUT reset frame plus its framing class-IN reads.
+#
+# This is a TRANSPORT-shape fixture, NOT a proof the reset cleared 5B00. It is
+# the control-transfer analogue of the v5103-wine-launch negative-control: it
+# pins what the extractor sees, so the parser has a repo-local artifact to run
+# against. The offline-vs-cloud question is answered by the protocol in
+# docs/runbook/wicreset-capture-analysis-pipeline.md, not by this file.
+
+file: 'ctrl-reset-sample-20260601.pcapng.gz'
+source_pcap: 'mbp-13:~/canon-tool-staging/captures/ctrl-reset-20260601-003647.pcapng'
+packet_count: 18
+duration_seconds: 2.188
+device_address: 42
+device_product_id: '0x12fe'          # G6020 enumerated in service mode (vs 0x1865 normal)
+
+captured_at: '2026-06-01T00:36:47Z'
+captured_by: 'jess on mbp-13 (control-transfer reset rehearsal)'
+
+# ─── What the parser extracts from this capture ────────────────────────────────
+# Run:  python3 scripts/parse-wicreset-capture.py \
+#         captures/ctrl-reset-sample-20260601.pcapng.gz --device-address 42
+#
+# Control transfers (EP0), in order:
+#   frame  3x  IN  standard 0x80/0x06   GET_DESCRIPTOR (enumeration)
+#   frame   7  OUT standard 0x00/0x09   SET_CONFIGURATION
+#   frame   9  IN  class    0xa1/0x00   GET_DEVICE_ID (IEEE-1284 id)
+#   frame  11  IN  class    0xa1/0x01   GET_PORT_STATUS
+#   frame  13  OUT vendor   0x40/0x85   wValue=0 wIndex=0 data=0003010307  *** RESET ***
+#   frame  15  IN  class    0xa1/0x01   GET_PORT_STATUS
+#   frame  17  IN  class    0xa1/0x00   GET_DEVICE_ID
+#
+# The frame-13 vendor control-OUT is the captured absorber-reset: it matches the
+# known [00 03 01 03 07] payload (idx 0x07 = Main absorber) over the service-mode
+# EP0 control transport — the path ops.replay_control_sequence drives behind the
+# safety gates.
+
+notes: |
+  Validated the parser against this capture on mbp-13 (tshark 4.4.2): control
+  transfers extracted with full bmRequestType/bRequest/wValue/wIndex/data +
+  responses, reset frame auto-flagged, --replay-snippet produces valid Python.
+  Network state during this rehearsal was NOT controlled, so it does not by
+  itself answer the offline-vs-cloud question.

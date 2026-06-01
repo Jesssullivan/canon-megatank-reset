@@ -113,6 +113,138 @@ supported:
     byte_sequence: null                      # full on-wire frame; confirmed at physical-validation time
     captured_at: null
     last_validated_at: null
+    # ── Transport (Lane C) ─────────────────────────────────────────────────────
+    # Two transports observed for the SAME [00 03 01 03 07] payload:
+    #   transport: bulk     — the v5103-derived path (encode_send → BULK_OUT 0x03
+    #                         on interface 4). ACK'd but firmware-GATED: 5B00
+    #                         persists. This is what ops.reset_absorber drives.
+    #   transport: control  — the REAL WICReset service-mode path: an EP0 VENDOR
+    #                         control-OUT to the device in service mode (idProduct
+    #                         0x12fe). This is what ops.replay_control_sequence
+    #                         drives. The captured frame (Lane C ctrl-reset pcap):
+    #                           bmRequestType=0x40 bRequest=0x85 wValue=0 wIndex=0
+    #                           data=[00 03 01 03 07]
+    #                         framed by class control-IN reads (0xA1/0x00 1284-id,
+    #                         0xA1/0x01 status). Whether this clears 5B00 offline
+    #                         (locally replayable) or needs a cloud nonce is the
+    #                         open question the offline-replay test answers — see
+    #                         docs/runbook/wicreset-capture-analysis-pipeline.md.
+    transport: control
+    service_mode_product_id: 0x12fe          # G6020 enumerates here once in service mode (vs 0x1865 normal)
+    # PLACEHOLDER until a real WICReset capture is extracted with
+    # scripts/parse-wicreset-capture.py --replay-snippet and pinned here. Each
+    # entry: bmRequestType/bRequest/wValue/wIndex + data (hex, OUT) or read_length
+    # (IN). ops.replay_control_sequence REFUSES to drive this while status is
+    # `derived-unvalidated` AND refuses if this list is empty. Populate ONLY from a
+    # verified offline-clearing capture, then promote status to `verified-captured`.
+    control_sequence: []
+    # Example (from the ctrl-reset rehearsal capture — NOT yet offline-verified):
+    #   - { bmRequestType: 0xa1, bRequest: 0x00, wValue: 0x0000, wIndex: 0x0000, read_length: 1024 }  # 1284-id
+    #   - { bmRequestType: 0xa1, bRequest: 0x01, wValue: 0x0000, wIndex: 0x0000, read_length: 1 }     # status
+    #   - { bmRequestType: 0x40, bRequest: 0x85, wValue: 0x0000, wIndex: 0x0000, data: '0003010307' } # RESET
+    #   - { bmRequestType: 0xa1, bRequest: 0x01, wValue: 0x0000, wIndex: 0x0000, read_length: 1 }     # status
+    control_sequence_captured_at: null
+    control_sequence_offline_verified: false  # set true ONLY after the offline-replay test clears 5B00
+
+    # ── DERIVED template (WICReset APP.BIN cleartext) ──────────────────────────
+    # Recovered 2026-06-01 from the decrypted WICReset model DB devices.xml
+    # (sha256 6031555f143080038431cf963706191a3108bd7c4fec03eeffeb2c8f60d86db3),
+    # produced offline by scripts/appbin_decrypt.py (3DES-EDE3-CBC zero-key → ZIP
+    # → devices.srs → ZIP → devices.xml). This is the literal G6000-family reset
+    # template the static-RE lane (docs/research/wicreset-g6020-reset-template.md)
+    # left as "runtime-only"; full join + sequence in
+    # docs/research/wicreset-g6020-reset-derived.md.
+    #
+    # GATE: this block is EVIDENCE ONLY. It is `derived-not-yet-validated` and
+    # does NOT promote absorber_reset.status (still `derived-unvalidated`). No op
+    # reads or writes from here; ops.reset_absorber / ops.replay_control_sequence
+    # remain hard-gated on status == 'verified-captured'. Populate the live
+    # device keyword + validate physically before promoting.
+    derived_template:
+      validation: derived-not-yet-validated     # NOT a runnable op; evidence pending physical validation
+      source_devices_xml_sha256: '6031555f143080038431cf963706191a3108bd7c4fec03eeffeb2c8f60d86db3'
+      decrypt_script: scripts/appbin_decrypt.py
+      # ── Model resolution (no G6020 literal; G6020 ∈ G6000 series) ────────────
+      spec_block: CANON-IPL                      # <CANON-IPL> (CANON-SR5 is only service-mode help text)
+      device_row: 'G6000 series'                 # <device>G6000 series … <method>3</method><support>query;waste:common</support>
+      method: 3                                  # selects encoder <handler>0x03</handler>
+      functor: 0x03                              # functor-3 (LCG envelope + XOR keystream) — resolves the static "2 vs 3?" wall
+      support: 'query;waste:common'              # G6000 family clears ONLY the 'common' absorber (the 5B00 main)
+      # ── Command prefixes (the session-frame headers) ─────────────────────────
+      commands:
+        set_session: '0x81 0x00 0x00 0x03'
+        get_version: '0x8A 0x00 0x00 0x00 0x00'
+        get_keyword: '0x82 0x00 0x00 0x00 0x00'  # RECV returns the live device keyword (the one residual input)
+        get_command: '0x86 0x00 0x00 0x00 0x00'
+        set_command: '0x85 0x00 0x00 0x00 0x00'
+      # ── functions.waste rows: selector 10 07 7C then reset operand 0D <region> 00 ─
+      functions_waste:
+        away: { commands: ['0x10 0x07 0x7C', '0x0D 0x05 0x00'] }
+        black: { commands: ['0x10 0x07 0x7C', '0x0D 0x03 0x00'] }
+        common: { commands: ['0x10 0x07 0x7C', '0x0D 0x00 0x00'] }  # G6000-family reset target (5B00)
+        platen: { commands: ['0x10 0x07 0x7C', '0x0D 0x01 0x00'] }
+        color: { commands: ['0x10 0x07 0x7C', '0x0D 0x04 0x00'] }
+        home: { commands: ['0x10 0x07 0x7C', '0x0D 0x06 0x00'] }
+      functions_query:
+        normal: { commands: ['0x10 0x07 0x7C', '0x15'] }  # read-back / status query
+      g6000_reset_operand: '0x0D 0x00 0x00'      # the 'common' row — what a G6020 absorber clear writes
+      # ── functor-3 keyword selector (cipher seed) ─────────────────────────────
+      keyword:
+        codes: '0x4D 0x49 0x53 0x00'             # "MIS\0"
+        index: '0x03 0x01 0x00 0x02'
+        resolution_value: '0x4D 0xB6 0xAB 0x00'  # from the <resolution> method; encoders XOR the live device keyword instead
+      # ── functor-3 cipher tables (XOR keystream) ──────────────────────────────
+      command_index:                             # 5 permutation arrays (×20 bytes)
+        - '0x0F 0x03 0x13 0x0C 0x01 0x08 0x00 0x12 0x07 0x05 0x10 0x04 0x0E 0x06 0x02 0x11 0x0B 0x0D 0x09 0x0A'
+        - '0x08 0x12 0x00 0x06 0x0F 0x04 0x0B 0x0E 0x01 0x0A 0x02 0x13 0x03 0x05 0x11 0x07 0x0D 0x09 0x10 0x0C'
+        - '0x04 0x0B 0x13 0x09 0x07 0x11 0x0F 0x02 0x0D 0x00 0x01 0x0E 0x05 0x03 0x06 0x10 0x08 0x0A 0x0C 0x12'
+        - '0x12 0x0E 0x00 0x0F 0x07 0x08 0x0B 0x01 0x13 0x03 0x11 0x02 0x10 0x04 0x0D 0x09 0x0C 0x06 0x0A 0x05'
+        - '0x07 0x05 0x08 0x0A 0x11 0x03 0x00 0x0E 0x13 0x12 0x04 0x01 0x09 0x06 0x02 0x0D 0x0F 0x0B 0x0C 0x10'
+      command_codes:                             # 7 keystream arrays (×20 bytes)
+        - '0x09 0x12 0xDD 0x1D 0x41 0x13 0x63 0x6B 0x44 0x2A 0x17 0xBD 0xAF 0xD2 0x88 0x31 0x3B 0x71 0xBB 0xE5'
+        - '0xBB 0x41 0x2C 0xD2 0x18 0x89 0x77 0x45 0x4F 0x11 0x05 0x67 0x25 0xD3 0x7C 0x4E 0xD4 0x4A 0x88 0x91'
+        - '0x3F 0x03 0x26 0x3D 0xCA 0x72 0x89 0x44 0x09 0xE2 0xB8 0x20 0xA9 0x4E 0x2B 0x04 0x0C 0x69 0x6B 0x25'
+        - '0x68 0x12 0x63 0x7F 0x8F 0xDE 0x70 0x40 0x38 0x2F 0x09 0x64 0x81 0xBB 0x31 0xC5 0x1A 0x72 0x6D 0x3A'
+        - '0xCA 0xCC 0x1D 0xE4 0x78 0x1C 0x1B 0x7E 0x7F 0x14 0xD5 0x18 0xD1 0xCF 0x80 0x7B 0x02 0xD3 0x19 0xDE'
+        - '0x14 0x27 0x22 0x08 0x0A 0x9D 0xA7 0xCA 0xE8 0x3A 0x4B 0x47 0x6B 0x89 0x95 0x90 0x23 0x6F 0xB2 0xC7'
+        - '0x38 0x42 0x2F 0x4F 0x6D 0x70 0x9B 0xDD 0xE6 0x09 0x05 0x07 0xF0 0x12 0xA8 0x17 0x62 0x4C 0x31 0x95'
+      command_shift:                             # 3 operator-VM programs (sign,data); sign ∈ = + - * / % & | ^
+        - [{ sign: '&', data: 1 }, { sign: '=', data: 0 }, { sign: '=', data: 0 }, { sign: '=', data: 0 }]
+        - [{ sign: '&', data: 1 }, { sign: '=', data: 1 }, { sign: '%', data: 5 }, { sign: '=', data: 0 }]
+        - [{ sign: '&', data: 1 }, { sign: '=', data: 0 }, { sign: '=', data: 0 }, { sign: '=', data: 2 }]
+      # ── functor-3 functions code→special→indexes (absorber/waste op remap) ───
+      # 44 rows (code 0x00–0x43, sparse); full table in devices.xml. Key rows:
+      functor3_functions:
+        0x00: { special: '0x04 0x66', indexes: [] }
+        0x01: { special: '0x05 0x22', indexes: ['0x07'] }
+        0x02: { special: '0x00 0x87', indexes: [] }
+        0x03: { special: '0x0F 0x01', indexes: ['0x03'] }
+        0x04: { special: '0x09 0xA3', indexes: ['0x08'] }
+        0x07: { special: '0x04 0x0F', indexes: ['0x01', '0x03'] }
+        0x08: { special: '0x0B 0x91', indexes: ['0x06', '0x01'] }
+        0x09: { special: '0x02 0x22', indexes: ['0x07', '0x0A'] }
+        0x0D: { special: '0x05 0x01', indexes: ['0x03', '0x04'] }
+        0x0F: { special: '0x02 0x02', indexes: ['0x01'] }
+        0x21: { special: '0x02 0x12', indexes: ['0x08'] }
+        0x2E: { special: '0x07 0x82', indexes: ['0x08', '0x09'] }
+        0x43: { special: '0x0D 0x2C', indexes: ['0x0A'] }
+      # ── functor-3 envelope (deterministic; from the static lane) ─────────────
+      functor3_envelope:
+        prefix: '0x00 0x12 0x01'                 # then frame[3], then the 16 fixed LCG bytes
+        lcg_seed: 0x12345678                      # MSVC rand(): s = s*0x343fd + 0x269ec3
+        lcg16: '0xE9 0x3F 0x0D 0xA1 0x96 0x95 0x31 0x04 0x49 0x2D 0x9E 0x61 0x83 0xCF 0x09 0x6F'  # CONSTANT
+      # ── statuses (RECV status-row decode) ────────────────────────────────────
+      statuses:
+        0x00: success
+        0x01: failure-not-ready
+        0xFF: failure-unsupported
+      # ── The one residual input ───────────────────────────────────────────────
+      residual: |
+        The live 4-byte device keyword (commands.get_keyword RECV). functor_initialization
+        XORs it into the encoder for set_command: out[i] = keyword_codes[keyword_index[i]] ^ device_keyword[i].
+        No longer a static wall: set_session + get_keyword are now encipherable from the
+        recovered tables above, so the keyword is readable natively. After that read,
+        the set_command(common = 0D 00 00) frame is fully determined.
 
 # ─── Safety budget ────────────────────────────────────────────────────────────
 

@@ -237,6 +237,91 @@ def cmd_reset(argv: list[str]) -> int:
     return 0
 
 
+def cmd_replay_control(argv: list[str]) -> int:
+    """`canon-megatank replay-control` — replay the captured EP0 control-transfer
+    reset sequence (the WICReset service-mode transport). DRY-RUN by default.
+
+    Without ``--execute`` it resolves the SSOT ``control_sequence`` and prints the
+    exact control transfers (no USB). ``--execute`` drives them over EP0 behind
+    every gate in ``ops.replay_control_sequence`` + a write-budget charge +
+    lockfile. While the SSOT status is ``derived-unvalidated`` (current — the
+    sequence is a placeholder) ``--execute`` HARD-STOPS with
+    ``ResetNotValidatedError``; an empty ``control_sequence`` also refuses."""
+    _configure_logging()
+    log = structlog.get_logger(service="printstack-canon", version=__version__, op="replay-control")
+
+    parser = argparse.ArgumentParser(prog="canon-megatank replay-control")
+    parser.add_argument("--product-id", type=lambda s: int(s, 0), default=0x12FE)
+    parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="actually drive the control transfers (default: dry-run print only). Gated.",
+    )
+    parser.add_argument("--timeout-ms", type=int, default=5000)
+    args = parser.parse_args(argv)
+
+    from .lockfile import charge_write, write_lock  # noqa: PLC0415
+    from .ops import replay_control_sequence  # noqa: PLC0415
+    from .types import CanonToolError, PrinterFingerprint  # noqa: PLC0415
+
+    doc = load_maintenance()
+    fp = doc["protocol_fingerprint"]
+    tu = doc["test_unit"]
+    runtime = PrinterFingerprint(
+        uuid=tu["uuid"],
+        firmware_version=fp["printer_firmware_version"],
+        device_id_raw=fp.get("printer_device_id", ""),
+        cmd_set=tuple(fp.get("cmd_set", ())),
+    )
+
+    # Dry-run needs no hardware: resolve + show the steps and stop.
+    if not args.execute:
+        plan = replay_control_sequence(
+            _NoDevice(),  # never touched on a dry-run
+            runtime_fingerprint=runtime,
+            eeprom_dump_done=False,
+        )
+        log.info(
+            "replay_control.dry_run",
+            steps=len(plan.steps),
+            summary=plan.outcome.response_summary,
+            note="DRY-RUN — no USB. Pass --execute to drive (gated).",
+            status=doc.get("supported", {}).get("absorber_reset", {}).get("status"),
+        )
+        return 0
+
+    serial = tu.get("serial_sticker") or tu["uuid"]
+    cap = int(doc.get("write_budget", {}).get("cap", 50))
+    from .usb import open_g6020  # noqa: PLC0415
+
+    def _charge() -> None:
+        charge_write(serial, cap=cap)
+
+    try:
+        with write_lock(serial), open_g6020(product_id=args.product_id, interface=None) as dev:
+            plan = replay_control_sequence(
+                dev,
+                runtime_fingerprint=runtime,
+                eeprom_dump_done=False,  # CLI does not yet auto-dump; gate will refuse
+                execute=True,
+                timeout_ms=args.timeout_ms,
+                charge=_charge,
+            )
+    except CanonToolError as exc:
+        log.error("replay_control.refused", err_type=type(exc).__name__, err=str(exc))
+        return 1
+
+    log.info("replay_control.ok", steps=len(plan.steps), executed=plan.executed)
+    return 0
+
+
+class _NoDevice:
+    """A device stand-in for the replay-control dry-run, which never transfers."""
+
+    def control_transfer(self, *_a: object, **_k: object) -> bytes:  # pragma: no cover
+        raise RuntimeError("dry-run must not touch the device")
+
+
 def run(argv: list[str] | None = None) -> int:
     """Console-script entrypoint. Dispatches subcommands; no args = service loop."""
     args = list(sys.argv[1:] if argv is None else argv)
@@ -244,6 +329,8 @@ def run(argv: list[str] | None = None) -> int:
         return cmd_read(args[1:])
     if args and args[0] == "reset":
         return cmd_reset(args[1:])
+    if args and args[0] == "replay-control":
+        return cmd_replay_control(args[1:])
     return _serve()
 
 
