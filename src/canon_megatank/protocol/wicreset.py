@@ -18,21 +18,30 @@ on the ephemeral ``/tmp/appbin_out/devices.xml`` and never vendors any Canon
 binary. The cipher MATH below is ported verbatim from the validated reference
 ``scripts/canon_sr5_cipher.py`` (20 passing tests).
 
-The algorithm (RECOVERED, see docs/research/wicreset-g6020-reset-derived.md):
+The algorithm (RECOVERED, see docs/research/g6020-cipher-fix.md):
 
-  functor 3 -> functor_encryption_003 (FUN_004e8410): prepend a 20-byte
+  functor 3 -> functor_encryption_003 (FUN_004e8410): build a 20-byte
                deterministic envelope ``[00 12 01 frame[3]]`` + 16 fixed
-               MSVC-rand() bytes (seed 0x12345678), then run functor 2 over the
-               assembled buffer.
-  functor 2 -> functor_implementation (FUN_004e76c0): a message-seeded XOR
-               keystream + index permutation over command.index / command.codes,
-               with a per-position shift from a tiny operator-VM over
-               command.shift, seeded big-endian by folding the message bytes and
-               mixing the bound session keyword.
+               MSVC-rand() bytes (seed 0x12345678), apply the function-block
+               ``<special>`` overwrite (envelope[4+off]:=val) and the
+               ``<indexes>`` payload scatter, then use that envelope as the
+               functor-2 SEED ONLY and emit the 4-byte enciphered keyword.
+  functor 2 -> functor_implementation (FUN_004e76c0): transforms ONLY the
+               4-byte BOUND keyword (functor_initialization writes it; the
+               output loop is bounded by len==4). Seeded big-endian by folding
+               the COMMAND/ENVELOPE buffer ONLY (the keyword enters via bind,
+               not the seed). The per-byte SHIFT is a TABLE built by the
+               operator-VM over the selected command.shift <array>'s <value>
+               sub-programs, indexed per output position. Array selection =
+               seed % {5 index, 7 codes, 3 shift}; the index path is the nested
+               table-walk with the send/recv swap.
   keyword   -> functor_initialization (FUN_004e72b0): the per-session encoder
                XORs the live device keyword into keyword.codes via keyword.index;
                with the template-default keyword (4D B6 AB 00) this reduces to
                the canonical session keyword.
+
+The on-wire frame is ``prefix(CLEAR) || 4-byte enciphered keyword`` — NOT a
+20-byte blob; the envelope is the functor-2 SEED, not the transform subject.
 
 This is pure derivation: no WICReset key is spent and no device is touched.
 """
@@ -86,11 +95,12 @@ class ShiftStep:
 
 
 def apply_shift_program(seed: int, steps: tuple[ShiftStep, ...]) -> int:
-    """Evaluate one command.shift array as the operator-VM over the seed.
+    """Evaluate ONE command.shift <value> sub-program as the operator-VM.
 
-    Mirrors functor_implementation's inner loop: acc starts at the message seed
-    and each step folds: '=' set, '+' add, '-' sub, '*' mul, '/' div, '%' mod,
-    '&' and, '|' or, '^' xor (32-bit)."""
+    Mirrors functor_implementation's inner shift-table loop: acc starts at the
+    message seed and each <action> step folds: '=' set, '+' add, '-' sub, '*'
+    mul, '/' div, '%' mod, '&' and, '|' or, '^' xor (32-bit). A command.shift
+    <array> holds several <value> sub-programs (see :func:`build_shift_table`)."""
     acc = seed & 0xFFFFFFFF
     for step in steps:
         d = step.data & 0xFFFFFFFF
@@ -117,6 +127,32 @@ def apply_shift_program(seed: int, steps: tuple[ShiftStep, ...]) -> int:
     return acc & 0xFFFFFFFF
 
 
+# A command.shift <array> is N <value> sub-programs, each a tuple of steps.
+ShiftArray = tuple[tuple[ShiftStep, ...], ...]
+
+
+def build_shift_table(seed: int, shift_array: ShiftArray) -> tuple[int, ...]:
+    """Build the per-position SHIFT TABLE for one command.shift <array>.
+
+    FUN_004e76c0:340-495 evaluates each <value> sub-program of the selected
+    <array> from the message seed, appending each result to the shift-table
+    container. Returns one shift value per <value>."""
+    return tuple(apply_shift_program(seed, value) for value in shift_array)
+
+
+@dataclass(frozen=True)
+class FunctionBlock:
+    """One functor-3 <function> entry, keyed by <code> (= command id frame[3]).
+
+    ``special`` is a flat list of (offset, value) pairs the envelope builder
+    writes as envelope[4+offset]:=value (FUN_004e8410:120-128); ``indexes``
+    scatters the frame[4:] payload into envelope[4+indexes[i]] (lines 129-138)."""
+
+    code: int
+    special: tuple[int, ...]
+    indexes: tuple[int, ...]
+
+
 # ─── the parsed functor-3 method (the recovered CANON-IPL tables) ───────────────
 @dataclass(frozen=True)
 class SR5Method:
@@ -127,7 +163,8 @@ class SR5Method:
     keyword_value: tuple[int, ...]  # default device keyword (4D B6 AB 00)
     command_index: tuple[tuple[int, ...], ...]  # 5 perm arrays, 20 bytes each
     command_codes: tuple[tuple[int, ...], ...]  # 7 keystream arrays, 20 bytes each
-    command_shift: tuple[tuple[ShiftStep, ...], ...]  # operator-VM arrays
+    command_shift: tuple[ShiftArray, ...]  # 3 <array>s, each N <value> sub-programs
+    functions: dict[int, FunctionBlock]  # functor-3 <function> blocks keyed by <code>
 
 
 # ─── keyword binding (functor_initialization, FUN_004e72b0) — RECOVERED ─────────
@@ -151,90 +188,95 @@ def bind_keyword(method: SR5Method, device_keyword: bytes) -> bytes:
 
 
 # ─── functor 2 (functor_implementation, FUN_004e76c0) — RECOVERED algorithm ─────
-def _message_seed(message: bytes, bound_keyword: bytes) -> int:
-    """local_d4: big-endian fold of the message, mixed with the session keyword."""
+def seed_fold(buffer: bytes) -> int:
+    """local_d4: big-endian fold of the COMMAND/ENVELOPE buffer ONLY.
+
+    FUN_004e76c0:258-266 -- local_d4 = local_d4*0x100 + byte. The keyword does
+    NOT enter the seed (it is bound separately and is the transform subject).
+    Over a >4-byte buffer only the trailing 4 bytes survive (256^4 == 0)."""
     seed = 0
-    for b in message:
+    for b in buffer:
         seed = (seed * 0x100 + b) & 0xFFFFFFFF
-    kw = 0
-    for b in bound_keyword:
-        kw = (kw * 0x100 + b) & 0xFFFFFFFF
-    return (seed ^ kw) & 0xFFFFFFFF
+    return seed
 
 
-def _bijection(base_perm: tuple[int, ...], length: int) -> list[int]:
-    """A true permutation of range(length) derived from the 20-element base."""
-    width = len(base_perm)
-    order = sorted(range(length), key=lambda p: (base_perm[p % width], p))
-    perm = [0] * length
-    for rank, pos in enumerate(order):
-        perm[pos] = rank
-    return perm
+def _derive(
+    method: SR5Method, seed: int
+) -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]:
+    """Select the index/codes arrays and build the shift TABLE for ``seed``.
 
-
-def _derive(method: SR5Method, seed: int) -> tuple[tuple[int, ...], tuple[int, ...], int]:
-    """Select the index/codes arrays and per-message shift for ``seed``."""
+    Array selection = seed % {len index (5), len codes (7), len shift (3)}."""
     index_arr = method.command_index[seed % len(method.command_index)]
     codes_arr = method.command_codes[seed % len(method.command_codes)]
     shift_arr = method.command_shift[seed % len(method.command_shift)]
-    shift_val = apply_shift_program(seed, shift_arr)
-    return index_arr, codes_arr, shift_val
+    shift_table = build_shift_table(seed, shift_arr)
+    return index_arr, codes_arr, shift_table
 
 
 def functor2_transform(
     method: SR5Method,
-    message: bytes,
-    bound_keyword: bytes,
+    keyword: bytes,
     *,
-    decrypt: bool,
-    seed_source: bytes | None = None,
+    seed_source: bytes,
+    send: bool = True,
 ) -> bytes:
-    """Symmetric XOR keystream + index permutation.
+    """functor_implementation (FUN_004e76c0): transform the 4-byte keyword.
 
-      encrypt:  cipher[perm[i]] = msg[i] ^ ks[i]      (seed = plaintext)
-      decrypt:  msg[i]          = cipher[perm[i]] ^ ks[i]  (seed = plaintext)
+    Operates on the 4-byte BOUND keyword, seeded by the big-endian fold of the
+    COMMAND/ENVELOPE buffer (``seed_source``). The output loop walks the
+    index/codes/shift tables per output position:
 
-    ks[i] = (seed >> (shift & 0x1f)) ^ codes[i % len(codes)]."""
-    seed = _message_seed(seed_source if seed_source is not None else message, bound_keyword)
-    index_arr, codes_arr, shift_val = _derive(method, seed)
-    perm = _bijection(index_arr, len(message))
-    shamt = shift_val & 0x1F
-
-    ks = bytes(
-        ((seed >> shamt) ^ codes_arr[i % len(codes_arr)]) & 0xFF for i in range(len(message))
-    )
-    out = bytearray(len(message))
-    if decrypt:
-        for i in range(len(message)):
-            out[i] = (message[perm[i]] ^ ks[i]) & 0xFF
-    else:
-        for i in range(len(message)):
-            out[perm[i]] = (message[i] ^ ks[i]) & 0xFF
+        j      = index_arr[i] % len ; code = codes_arr[j % 20]
+        shift  = shift_table[j % len(table)]
+        ksbyte = (seed >> (shift & 0x1f)) ^ code
+        send (param_5=1):  out[i] = keyword[j] ^ ksbyte
+        recv (param_5=0):  out[j] = keyword[i] ^ ksbyte"""
+    seed = seed_fold(seed_source)
+    index_arr, codes_arr, shift_table = _derive(method, seed)
+    n = len(keyword)
+    out = bytearray(n)
+    for i in range(n):
+        j = index_arr[i % len(index_arr)] % n
+        code = codes_arr[j % len(codes_arr)]
+        shift = shift_table[j % len(shift_table)]
+        ksbyte = ((seed >> (shift & 0x1F)) ^ code) & 0xFF
+        if send:
+            out[i] = (keyword[j] ^ ksbyte) & 0xFF
+        else:
+            out[j] = (keyword[i] ^ ksbyte) & 0xFF
     return bytes(out)
 
 
 # ─── functor 3 (functor_encryption_003, FUN_004e8410) — RECOVERED ───────────────
-def envelope3(app_frame: bytes) -> bytes:
-    """The deterministic 20-byte preamble functor 3 prepends:
-    ``[00 12 01 frame[3]]`` + 16 fixed LCG bytes. Errors below 4 bytes."""
+def envelope3(method: SR5Method, app_frame: bytes) -> bytes:
+    """The deterministic 20-byte functor-3 envelope (the functor-2 SEED).
+
+    ``[00 12 01 frame[3]]`` + 16 fixed LCG bytes, then the function-block
+    ``<special>`` overwrite (envelope[4+off]:=val) and the ``<indexes>`` payload
+    scatter for the block keyed by frame[3]. Errors below 4 bytes."""
     if len(app_frame) < KEYWORD_LEN:
         raise CanonToolError("Command buffer is too small.")
-    return bytes([0x00, 0x12, 0x01, app_frame[3]]) + lcg16()
+    cmd_id = app_frame[3]
+    env = bytearray([0x00, 0x12, 0x01, cmd_id]) + bytearray(lcg16())
+    block = method.functions.get(cmd_id)
+    if block is not None:
+        sp = block.special
+        for k in range(0, len(sp) - 1, 2):
+            off = sp[k]
+            if 4 + off < len(env):
+                env[4 + off] = sp[k + 1] & 0xFF
+        payload = app_frame[4:]
+        for i, off in enumerate(block.indexes):
+            if i < len(payload) and 4 + off < len(env):
+                env[4 + off] = payload[i]
+    return bytes(env)
 
 
 def functor3_encrypt(method: SR5Method, app_frame: bytes, bound_keyword: bytes) -> bytes:
-    """envelope + functor 2 over (envelope || frame[4:])."""
-    assembled = envelope3(app_frame) + app_frame[4:]
-    return functor2_transform(method, assembled, bound_keyword, decrypt=False)
-
-
-def functor3_decrypt(
-    method: SR5Method, wire: bytes, bound_keyword: bytes, *, assembled_plaintext: bytes
-) -> bytes:
-    """Inverse of functor3_encrypt's functor-2 stage (returns the assembled buffer)."""
-    return functor2_transform(
-        method, wire, bound_keyword, decrypt=True, seed_source=assembled_plaintext
-    )
+    """Emit the 4-byte enciphered keyword (functor-2 over the bound keyword,
+    seeded by the 20-byte envelope ONLY)."""
+    envelope = envelope3(method, app_frame)
+    return functor2_transform(method, bound_keyword, seed_source=envelope, send=True)
 
 
 # ─── SSOT loading: build SR5Method from derived_template (never devices.xml) ────
@@ -246,6 +288,30 @@ def _hexbytes(spec: str) -> tuple[int, ...]:
             out.append(int(tok, 16) & 0xFF)
         except ValueError as exc:
             raise CanonToolError(f"malformed template byte {tok!r} in {spec!r}") from exc
+    return tuple(out)
+
+
+def _parse_shift_value(value: Any) -> tuple[ShiftStep, ...]:
+    """Parse one command.shift <value> sub-program (an ordered list of <action>
+    {sign,data} steps) into a tuple of :class:`ShiftStep`.
+
+    Mirrors the devices.xml nesting: a <value> is a multi-action operator-VM
+    program. The SSOT stores it as a list of ``{sign, data}`` mappings; a bare
+    ``{sign, data}`` mapping (the legacy single-action form) is accepted as a
+    one-step program. The list order is preserved verbatim (load-bearing)."""
+    if isinstance(value, dict):  # legacy single-action <value>: {sign, data}
+        steps: list[Any] = [value]
+    else:
+        steps = list(value)
+    out: list[ShiftStep] = []
+    for step in steps:
+        try:
+            out.append(ShiftStep(sign=str(step["sign"]), data=int(step["data"])))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise CanonToolError(
+                f"malformed command.shift <action> step {step!r}: expected "
+                "{sign, data}"
+            ) from exc
     return tuple(out)
 
 
@@ -290,11 +356,24 @@ def load_method_from_ssot(
 
     command_index = tuple(_hexbytes(a) for a in tmpl["command_index"])
     command_codes = tuple(_hexbytes(a) for a in tmpl["command_codes"])
-    command_shift: list[tuple[ShiftStep, ...]] = []
+    # ONE TRUE shift semantics (FUN_004e76c0:340-495): each command.shift <array>
+    # holds an ORDERED list of <value> sub-programs; each <value> is its own
+    # multi-action operator-VM program (a list of {sign,data} <action> steps).
+    # build_shift_table evaluates each <value> from the seed (acc reset per
+    # <value>) and emits ONE shift-table entry per <value>. The SSOT stores this
+    # as list[array][value][action]; we parse that nesting verbatim so the table
+    # is identical to the devices.xml mirror AND order is interpreter-pinned.
+    command_shift: list[ShiftArray] = []
     for arr in tmpl["command_shift"]:
-        command_shift.append(
-            tuple(ShiftStep(sign=str(step["sign"]), data=int(step["data"])) for step in arr)
-        )
+        command_shift.append(tuple(_parse_shift_value(value) for value in arr))
+
+    functions: dict[int, FunctionBlock] = {}
+    for code_key, blk in (tmpl.get("functor3_functions") or {}).items():
+        code = code_key if isinstance(code_key, int) else int(str(code_key), 16)
+        special = _hexbytes(blk["special"]) if blk.get("special") else ()
+        idx_field = blk.get("indexes") or []
+        indexes = tuple(int(str(x), 16) & 0xFF for x in idx_field)
+        functions[code] = FunctionBlock(code=code, special=special, indexes=indexes)
 
     return SR5Method(
         handler=int(handler),
@@ -305,6 +384,7 @@ def load_method_from_ssot(
         command_index=command_index,
         command_codes=command_codes,
         command_shift=tuple(command_shift),
+        functions=functions,
     )
 
 
@@ -352,19 +432,22 @@ class WicResetEncoder:
         self._keyword = bytes(device_keyword[:KEYWORD_LEN])
 
     def encipher(self, plaintext_app_frame: bytes) -> bytes:
-        """Functor-3 encipher a plaintext ``[cmd][arg…][payload]`` app frame.
+        """Encipher a plaintext ``[cmd][arg…][payload]`` app frame.
 
-        Returns the on-wire bytes (20-byte envelope folded over frame[0:4] then
-        frame[4:], run through functor 2 keyed by the bound session keyword)."""
+        Returns the full on-wire frame: ``prefix(CLEAR) || 4-byte enciphered
+        keyword``. The clear prefix is the plaintext app frame itself; the
+        cipher (functor 2 over the bound keyword, seeded by the functor-3
+        envelope) appends the 4 enciphered keyword bytes. This is the
+        execute_one_command framing — NOT a 20-byte blob."""
+        frame = bytes(plaintext_app_frame)
         bound = bind_keyword(self._method, self._keyword)
         if self._method.functor == FUNCTOR_IDENTITY:
-            return bytes(plaintext_app_frame)
+            return frame
         if self._method.functor == FUNCTOR_IMPLEMENTATION:
-            return functor2_transform(
-                self._method, bytes(plaintext_app_frame), bound, decrypt=False
-            )
+            enc_kw = functor2_transform(self._method, bound, seed_source=frame, send=True)
+            return frame + enc_kw
         if self._method.functor == FUNCTOR_ENCRYPTION_003:
-            return functor3_encrypt(self._method, bytes(plaintext_app_frame), bound)
+            return frame + functor3_encrypt(self._method, frame, bound)
         raise CanonToolError(f"unknown functor {self._method.functor}")
 
 

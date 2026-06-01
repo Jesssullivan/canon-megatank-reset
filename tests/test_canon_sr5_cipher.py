@@ -43,16 +43,43 @@ def test_envelope_16_fixed_bytes() -> None:
 
 
 def test_envelope_layout() -> None:
+    method = _synthetic_method(functor=3)
     frame = bytes([0x85, 0x00, 0x00, 0xAB, 0x10, 0x07, 0x7C])
-    env = csr5.envelope3(frame)
+    env = csr5.envelope3(method, frame)
     assert env[:4] == bytes([0x00, 0x12, 0x01, 0xAB])  # 00 12 01 frame[3]
-    assert env[4:] == EXPECTED_ENVELOPE
+    assert env[4:] == EXPECTED_ENVELOPE  # no function block for 0xAB -> untouched
     assert len(env) == 20
 
 
+def test_envelope_special_overwrite() -> None:
+    # function block code 0x00 -> <special>0x04 0x66</special> => env[4+4]=env[8]:=0x66
+    method = csr5.SR5Method(
+        **{
+            **_synthetic_method(functor=3).__dict__,
+            "functions": {0x00: csr5.FunctionBlock(code=0x00, special=(0x04, 0x66), indexes=())},
+        }
+    )
+    env = csr5.envelope3(method, bytes([0x82, 0x00, 0x00, 0x00, 0x00]))
+    assert env[8] == 0x66  # overwrote the 0x96 LCG byte (EXPECTED_ENVELOPE[4])
+    assert EXPECTED_ENVELOPE[4] == 0x96
+
+
+def test_envelope_indexes_scatter() -> None:
+    # <indexes>0x05</indexes> scatters frame[4:][0] into env[4+5]=env[9]
+    method = csr5.SR5Method(
+        **{
+            **_synthetic_method(functor=3).__dict__,
+            "functions": {0x10: csr5.FunctionBlock(code=0x10, special=(), indexes=(0x05,))},
+        }
+    )
+    env = csr5.envelope3(method, bytes([0x85, 0x00, 0x00, 0x10, 0xCA]))
+    assert env[9] == 0xCA
+
+
 def test_envelope_too_small() -> None:
+    method = _synthetic_method(functor=3)
     with pytest.raises(ValueError, match="too small"):
-        csr5.envelope3(b"\x85\x00\x00")
+        csr5.envelope3(method, b"\x85\x00\x00")
 
 
 # ---- operator-VM ----------------------------------------------------------
@@ -68,14 +95,28 @@ def test_shift_program_set_then_ops() -> None:
     assert csr5.apply_shift_program(0, (csr5.ShiftStep("=", 7),)) == 7
 
 
+def test_build_shift_table_one_entry_per_value() -> None:
+    # one shift-table entry per <value> sub-program (FUN_004e76c0:340-495)
+    arr = (
+        (csr5.ShiftStep("=", 0),),
+        (csr5.ShiftStep("&", 1),),
+        (csr5.ShiftStep("=", 2),),
+    )
+    assert csr5.build_shift_table(0xDEADBEEF, arr) == (0, 0xDEADBEEF & 1, 2)
+
+
 # ---- synthetic-table round-trip (no devices.xml needed) -------------------
 def _synthetic_method(functor: int = 2):  # type: ignore[no-untyped-def]
     idx = tuple(tuple((i * 7 + k) % 20 for i in range(20)) for k in range(5))
     codes = tuple(tuple((i * 13 + 3 * k) & 0xFF for i in range(20)) for k in range(7))
+    # 3 <array>s, each 4 single-action <value> sub-programs (the recovered shape)
     shift = (
-        (csr5.ShiftStep("=", 0), csr5.ShiftStep("&", 1)),
-        (csr5.ShiftStep("=", 1), csr5.ShiftStep("%", 5)),
-        (csr5.ShiftStep("&", 1), csr5.ShiftStep("=", 2)),
+        ((csr5.ShiftStep("=", 0),), (csr5.ShiftStep("&", 1),),
+         (csr5.ShiftStep("=", 0),), (csr5.ShiftStep("=", 0),)),
+        ((csr5.ShiftStep("&", 1),), (csr5.ShiftStep("=", 1),),
+         (csr5.ShiftStep("%", 5),), (csr5.ShiftStep("=", 0),)),
+        ((csr5.ShiftStep("&", 1),), (csr5.ShiftStep("=", 0),),
+         (csr5.ShiftStep("=", 0),), (csr5.ShiftStep("=", 2),)),
     )
     return csr5.SR5Method(
         handler=functor,
@@ -86,39 +127,33 @@ def _synthetic_method(functor: int = 2):  # type: ignore[no-untyped-def]
         command_index=idx,
         command_codes=codes,
         command_shift=shift,
+        functions={},
     )
 
 
-@pytest.mark.parametrize(
-    "msg",
-    [
-        b"\x85\x00\x00\x10\x07\x7c",
-        b"\x85\x00\x00\x0d\x00\x00",
-        bytes(range(20)),
-        b"\x00",
-        b"\xff" * 23,
-    ],
-)
-def test_functor2_round_trip_synthetic(msg: bytes) -> None:
+def test_functor2_emits_four_bytes() -> None:
     method = _synthetic_method()
     bound = csr5.bind_keyword(method, bytes(method.keyword_value))
-    enc = csr5.functor2_transform(method, msg, bound, decrypt=False)
-    dec = csr5.functor2_transform(method, enc, bound, decrypt=True, seed_source=msg)
-    assert dec == msg
+    enc = csr5.functor2_transform(method, bound, seed_source=b"\x85\x00\x00\x10\x07\x7c")
+    assert len(enc) == csr5.KEYWORD_LEN == 4
 
 
-def test_functor2_is_a_permutation_xor() -> None:
+def test_functor2_seed_is_command_buffer_only() -> None:
+    # the keyword does NOT enter the seed; two different keywords share the seed
+    # selection but produce different output bytes (transform subject differs).
+    method = _synthetic_method()
+    seed_src = b"\x85\x00\x00\x10\x07\x7c"
+    a = csr5.functor2_transform(method, b"\x00\xff\x00\xf8", seed_source=seed_src)
+    b = csr5.functor2_transform(method, b"\x44\x6b\x5c\x60", seed_source=seed_src)
+    assert a != b
+
+
+def test_functor2_seed_changes_output() -> None:
     method = _synthetic_method()
     bound = csr5.bind_keyword(method, bytes(method.keyword_value))
-    msg = bytes(range(20))
-    enc = csr5.functor2_transform(method, msg, bound, decrypt=False)
-    # re-decrypting (seeded from the known plaintext) recovers the input
-    assert csr5.functor2_transform(method, enc, bound, decrypt=True, seed_source=msg) == msg
-    # a one-byte change in input perturbs the output (avalanche via seed fold)
-    other = bytearray(msg)
-    other[5] ^= 0x01
-    enc2 = csr5.functor2_transform(method, bytes(other), bound, decrypt=False)
-    assert enc2 != enc
+    a = csr5.functor2_transform(method, bound, seed_source=b"\x00\x00\x00\x01")
+    b = csr5.functor2_transform(method, bound, seed_source=b"\x00\x00\x00\x02")
+    assert a != b  # a different seed reselects arrays / keystream
 
 
 def test_keyword_binding_default_vs_live_differs() -> None:
@@ -164,6 +199,19 @@ def test_command_table_shapes() -> None:
         assert len(m.command_codes) == 7
         assert all(len(a) == 20 for a in m.command_codes)
         assert len(m.command_shift) == 3
+        # each command.shift <array> holds 4 <value> sub-programs
+        assert all(len(arr) == 4 for arr in m.command_shift)
+
+
+@needs_xml
+def test_method3_function_blocks_parsed() -> None:
+    spec = csr5.parse_devices_xml(DEVICES_XML)
+    m3 = spec.encoder_for_method(3)
+    # the <function> block for code 0x00 (get_keyword) carries <special>0x04 0x66</special>
+    assert m3.functions[0x00].special == (0x04, 0x66)
+    assert m3.functions[0x00].indexes == ()
+    # code 0x03 (set_session) special offset 0x0F lands in env[19] (seed-significant)
+    assert m3.functions[0x03].special == (0x0F, 0x01)
 
 
 @needs_xml
@@ -195,17 +243,17 @@ def test_waste_common_cleartext() -> None:
 
 
 @needs_xml
-def test_waste_common_round_trips_under_functor3() -> None:
+def test_waste_common_functor3_emits_four_byte_keyword() -> None:
     spec = csr5.parse_devices_xml(DEVICES_XML)
     waste = csr5.parse_waste_rows(DEVICES_XML)
     m3 = spec.encoder_for_method(3)
     bound = csr5.bind_keyword(m3, bytes(spec.resolution.keyword_value))
     for cmd in waste["common"]:
         frame = bytes(spec.prefixes["set_command"]) + cmd
-        assembled = csr5.envelope3(frame) + frame[4:]
-        wire = csr5.functor3_encrypt(m3, frame, bound)
-        recovered = csr5.functor3_decrypt(m3, wire, bound, assembled_plaintext=assembled)
-        assert recovered == assembled
+        env = csr5.envelope3(m3, frame)
+        assert len(env) == 20  # 4-byte header + 16 LCG bytes
+        enc_kw = csr5.functor3_encrypt(m3, frame, bound)
+        assert len(enc_kw) == csr5.KEYWORD_LEN == 4  # functor 3 emits 4 bytes, not a blob
 
 
 @needs_xml
@@ -226,12 +274,14 @@ def test_waste_common_encipher_deterministic_and_keyword_sensitive() -> None:
 
 
 @needs_xml
-def test_encode_command_functor3_includes_envelope_length() -> None:
+def test_encode_command_functor3_wire_is_prefix_plus_four() -> None:
     spec = csr5.parse_devices_xml(DEVICES_XML)
-    # set_command prefix(3) + payload(3) = 6 app bytes; functor3 prepends a
-    # 20-byte envelope over frame[0:4] then appends frame[4:], so the cipher
-    # input length is 20 + (6 - 4) = 22 -> wire length 22.
+    # The wire frame is prefix(CLEAR) || 4-byte enciphered keyword (B1-B3): the
+    # functor-3 envelope is the SEED only, not part of the wire. set_command
+    # prefix(3) + payload(3) = 6 clear bytes + 4 enciphered = 10 wire bytes.
     wire = csr5.encode_command(
         spec, method_no=3, set_prefix="set_command", command_bytes=bytes([0x10, 0x07, 0x7C])
     )
-    assert len(wire) == 22
+    assert len(wire) == 10
+    assert wire[:6] == bytes(spec.prefixes["set_command"]) + bytes([0x10, 0x07, 0x7C])
+    assert wire == bytes.fromhex("85 00 00 10 07 7c 40 40 8f ec".replace(" ", ""))

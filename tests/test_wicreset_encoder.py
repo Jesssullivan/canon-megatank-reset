@@ -16,7 +16,10 @@ is absent those checks skip, but the SSOT-recorded golden bytes ALWAYS run.
 from __future__ import annotations
 
 import importlib.util
+import shutil
+import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -27,10 +30,13 @@ from canon_megatank.protocol.wicreset import (
     ENVELOPE_FIXED_16,
     TEMPLATE_DEFAULT_KEYWORD,
     WicResetEncoder,
+    _derive,
     bind_keyword,
     build_encoder,
+    envelope3,
     lcg16,
     load_method_from_ssot,
+    seed_fold,
 )
 from canon_megatank.types import (
     CanonToolError,
@@ -43,19 +49,14 @@ from canon_megatank.types import (
 # ─── SSOT golden bytes (printers/canon-g6020/maintenance.yaml derived_sequence) ─
 # These are the bytes the SSOT records as produced by the reference encoder for
 # the waste:common clear. They are the canonical correctness anchor.
-GOLD_DEFAULT_SELECT = bytes.fromhex(
-    "f3 0d 61 e7 bb bc 64 31 a7 0b a9 22 95 fb e6 1b a0 00 e1 c9 ce a3".replace(" ", "")
-)
-GOLD_DEFAULT_RESET = bytes.fromhex(
-    "10 4e 0a 87 71 01 7c 48 06 06 bd a2 a8 c4 df 42 ba 06 08 6e 7c 3d".replace(" ", "")
-)
+# Wire frame = prefix(CLEAR) || 4-byte enciphered keyword (B1-B3): the functor-3
+# envelope is the functor-2 SEED ONLY, functor 2 transforms the 4-byte bound
+# keyword and emits 4 bytes — NOT a 20-byte blob.
+GOLD_DEFAULT_SELECT = bytes.fromhex("85 00 00 10 07 7c 40 40 8f ec".replace(" ", ""))
+GOLD_DEFAULT_RESET = bytes.fromhex("85 00 00 0d 00 00 40 40 8f ec".replace(" ", ""))
 # After seed_keyword(11 22 33 44) — the SSOT's symbolic-live-keyword illustration.
-GOLD_LIVE_SELECT = bytes.fromhex(
-    "bd 36 25 94 fa a4 43 39 1e 71 46 39 90 05 42 ab 7c 7b f3 e8 23 ea".replace(" ", "")
-)
-GOLD_LIVE_RESET = bytes.fromhex(
-    "65 78 b7 f9 20 18 0a 8e 70 70 7a d0 6a a5 7c bc f9 81 4d 7e a2 b6".replace(" ", "")
-)
+GOLD_LIVE_SELECT = bytes.fromhex("85 00 00 10 07 7c 1c 1c cb 74".replace(" ", ""))
+GOLD_LIVE_RESET = bytes.fromhex("85 00 00 0d 00 00 1c 1c cb 74".replace(" ", ""))
 
 # The plaintext app frames the SSOT records (3-byte set_command prefix form).
 PT_SELECT = bytes([0x85, 0x00, 0x00, 0x10, 0x07, 0x7C])
@@ -123,14 +124,18 @@ def test_seed_keyword_reset_matches_ssot_live_golden() -> None:
     assert enc.encipher(PT_RESET) == GOLD_LIVE_RESET
 
 
-def test_seed_keyword_changes_every_byte() -> None:
-    """A live keyword reseeds functor_initialization → every byte differs."""
+def test_seed_keyword_changes_every_enciphered_byte() -> None:
+    """A live keyword reseeds functor_initialization → every ENCIPHERED byte
+    differs. The wire is prefix(CLEAR) || 4 enciphered bytes; the 6-byte clear
+    prefix is shared (keyword-independent), so only the 4-byte tail changes."""
     enc = build_encoder()
     default = enc.encipher(PT_SELECT)
     enc.seed_keyword(b"\x11\x22\x33\x44")
     live = enc.encipher(PT_SELECT)
     assert default != live
-    assert all(d != x for d, x in zip(default, live, strict=True))
+    # the clear prefix is identical; the 4-byte enciphered keyword fully differs
+    assert default[:-4] == live[:-4]
+    assert all(d != x for d, x in zip(default[-4:], live[-4:], strict=True))
 
 
 def test_seed_keyword_truncates_long_reply_to_four_bytes() -> None:
@@ -146,6 +151,114 @@ def test_seed_keyword_refuses_short_keyword() -> None:
     enc = build_encoder()
     with pytest.raises(CanonToolError):
         enc.seed_keyword(b"\x11\x22")
+
+
+# ─── DETERMINISM regression: the set_session / get_keyword handshake frames ─────
+# These are the FINAL deterministic wire bytes a keyed run will send (under the
+# template-default keyword). They were diverging across CPython 3.13/3.14 before
+# the shift-table fix (neo 3.13 -> …2d 2d ba 2b, mbp-13 3.14 -> …2d 2d 3b 2b);
+# the bug was the command.shift <value> ordering + per-<value> semantics. The
+# ONE TRUE shift table for the set_session seed (0x83cf0901, array idx 0) is
+# (0, 1, 0, 0) — the neo value. These bytes are now pinned and asserted equal
+# across interpreters by test_handshake_frames_match_across_interpreters.
+PT_SET_SESSION = bytes([0x81, 0x00, 0x00, 0x03])
+PT_GET_KEYWORD = bytes([0x82, 0x00, 0x00, 0x00, 0x00])
+GOLD_SET_SESSION = bytes.fromhex("81 00 00 03 2d 2d ba 2b".replace(" ", ""))
+GOLD_GET_KEYWORD = bytes.fromhex("82 00 00 00 00 40 40 8f ec".replace(" ", ""))
+# The set_session shift table, pinned to the neo/devices.xml-correct ordering.
+EXPECTED_SET_SESSION_SHIFT_TABLE = (0, 1, 0, 0)
+
+
+def test_set_session_wire_is_pinned() -> None:
+    enc = build_encoder()
+    assert enc.encipher(PT_SET_SESSION) == GOLD_SET_SESSION
+
+
+def test_get_keyword_wire_is_pinned() -> None:
+    enc = build_encoder()
+    assert enc.encipher(PT_GET_KEYWORD) == GOLD_GET_KEYWORD
+
+
+def test_set_session_shift_table_is_the_neo_ordering() -> None:
+    """The contested shift table must be (0, 1, 0, 0) — one entry PER <value>
+    in document order — not the mbp-13 (1, 0, 0, 0) per-action/misordered variant."""
+    method = load_method_from_ssot()
+    seed = seed_fold(envelope3(method, PT_SET_SESSION))
+    _index, _codes, shift_table = _derive(method, seed)
+    assert shift_table == EXPECTED_SET_SESSION_SHIFT_TABLE
+
+
+def test_handshake_frames_are_deterministic_across_calls() -> None:
+    """Repeated builds + encipher calls yield byte-identical frames (no hidden
+    interpreter-order dependence within a single process)."""
+    frames = [
+        (build_encoder().encipher(PT_SET_SESSION), build_encoder().encipher(PT_GET_KEYWORD))
+        for _ in range(8)
+    ]
+    assert all(f == (GOLD_SET_SESSION, GOLD_GET_KEYWORD) for f in frames)
+
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+# Drives the SSOT loader directly (the path the encoder uses). The SSOT command
+# tables are loaded the same way build_encoder() does, so a divergence here is a
+# divergence in the shipped encoder. Self-contained so it runs under `uv run
+# --python X` (which provisions ruamel.yaml from pyproject) on either interpreter.
+_DETERMINISM_SNIPPET = textwrap.dedent(
+    """
+    import sys
+    sys.path.insert(0, {src!r})
+    from canon_megatank.protocol.wicreset import build_encoder
+
+    enc = build_encoder()
+    ss = enc.encipher(bytes([0x81, 0x00, 0x00, 0x03]))
+    gk = enc.encipher(bytes([0x82, 0x00, 0x00, 0x00, 0x00]))
+    print(ss.hex())
+    print(gk.hex())
+    """
+).strip()
+
+
+def _encode_under(version: str) -> tuple[str, str]:
+    """Run the encode under a specific CPython version in an ISOLATED ephemeral
+    env (``uv run --no-project --with ruamel.yaml``) and return the two hex
+    frames. ``--no-project`` keeps this from mutating the project ``.venv``; the
+    snippet injects ``src/`` on sys.path so the package imports without install."""
+    snippet = _DETERMINISM_SNIPPET.format(src=str(_REPO_ROOT / "src"))
+    out = subprocess.run(  # noqa: S603 - fixed args, test-only
+        [
+            "uv", "run", "--no-project", "--python", version,
+            "--with", "ruamel.yaml", "--with", "structlog", "--with", "pyusb",
+            "python", "-c", snippet,
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(_REPO_ROOT),
+        check=True,
+    )
+    # The two hex frames are the only pure-hex stdout lines (uv logs go to stderr).
+    hexlines = [
+        ln.strip()
+        for ln in out.stdout.splitlines()
+        if ln.strip() and all(c in "0123456789abcdef" for c in ln.strip())
+    ]
+    return hexlines[-2], hexlines[-1]
+
+
+@pytest.mark.parametrize("version", ["3.13", "3.14"])
+def test_handshake_frames_match_across_interpreters(version: str) -> None:
+    """The set_session / get_keyword wire bytes are byte-identical under BOTH
+    CPython 3.13 and 3.14 — the cross-interpreter determinism guarantee. Skips
+    cleanly when ``uv`` (or the requested interpreter) is unavailable; the
+    within-process pins above always run."""
+    if shutil.which("uv") is None:
+        pytest.skip("uv not on PATH — cross-interpreter check requires uv")
+    try:
+        ss_hex, gk_hex = _encode_under(version)
+    except (subprocess.CalledProcessError, IndexError) as exc:
+        detail = getattr(exc, "stderr", str(exc)) or str(exc)
+        pytest.skip(f"CPython {version} unavailable via uv: {detail.strip()[-200:]}")
+    assert bytes.fromhex(ss_hex) == GOLD_SET_SESSION
+    assert bytes.fromhex(gk_hex) == GOLD_GET_KEYWORD
 
 
 # ─── BYTE-IDENTITY vs the reference encoder (needs devices.xml) ─────────────────

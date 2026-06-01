@@ -43,20 +43,45 @@ docs/research/wicreset-g6020-reset-template.md and the raw decompiles in
 FUN_004e8410):
 
   functor 1 -> identity copy (no transform).
-  functor 2 -> functor_implementation (FUN_004e76c0): a symmetric,
-               message-seeded XOR keystream cipher over command.index /
-               command.codes / command.shift, seeded big-endian by folding
-               the message bytes, with a per-position shift produced by a
-               tiny operator-VM ('= + - * / % & | ^') over command.shift.
-  functor 3 -> functor_encryption_003 (FUN_004e8410): prepend a 20-byte
-               deterministic envelope [00 12 01 <cmd>] + 16 fixed
-               MSVC-rand() bytes (seed 0x12345678 ->
-               e9 3f 0d a1 96 95 31 04 49 2d 9e 61 83 cf 09 6f), then run
-               functor 2 over the assembled buffer.
+  functor 2 -> functor_implementation (FUN_004e76c0): transforms ONLY the
+               4-byte BOUND KEYWORD (functor_initialization writes it into
+               local_ec, local_e4=4; the output loop pp-helpers.txt:501-534 is
+               bounded by local_e4=4 and emits 4 bytes). The keystream is
+               seeded big-endian by folding the COMMAND/ENVELOPE buffer ONLY
+               (param_1 -> local_10c -> local_d4; the keyword enters via bind,
+               NOT the seed). The per-byte SHIFT is a TABLE built by the
+               operator-VM over the selected command.shift <array> (its 4
+               <value> sub-programs, pp-helpers.txt:338-495), indexed per
+               output position (pp-helpers.txt:522-526) -- NOT one scalar.
+               Array selection = seed % {5 index, 7 codes, 3 shift}. The index
+               PATH is the nested table-walk FUN_00449110/FUN_004c1bf0 with the
+               send (param_5=1: out[i]=in[perm[i]]^ks) / recv (param_5=0:
+               out[perm[i]]=in[i]^ks) swap.
+  functor 3 -> functor_encryption_003 (FUN_004e8410): build a 20-byte
+               deterministic envelope [00 12 01 <cmd>] + 16 fixed MSVC-rand()
+               bytes (seed 0x12345678 ->
+               e9 3f 0d a1 96 95 31 04 49 2d 9e 61 83 cf 09 6f), apply the
+               function-block <special> overwrite (e.g. code 0x00 ->
+               <special>0x04 0x66</special> => envelope[4+0x04]=envelope[8]:=0x66
+               over 0x96, FUN_004e8410:120-128) and the <indexes> payload
+               scatter (FUN_004e8410:129-138), then use that envelope as the
+               functor-2 SEED ONLY and emit 4 enciphered keyword bytes. The
+               wire frame is assembled at the execute_one_command layer as
+               prefix(CLEAR) || the 4-byte enciphered keyword -- NOT a 20-byte
+               blob.
   keyword binding -> functor_initialization (FUN_004e72b0): the per-session
                encoder XORs the live device keyword into the keyword.codes
                table via keyword.index. With the template-default keyword
                this reduces to keyword.value (4D B6 AB 00).
+
+NOTE on the seed fold: local_d4 = local_d4*0x100 + byte over the WHOLE param_1
+buffer (FUN_004e76c0:258-266), mod 2^32. Over the 20-byte functor-3 envelope
+only the trailing 4 bytes survive (256^4 == 0 mod 2^32), so the <special>
+overwrite at envelope[8] and the cmd byte at envelope[3] are washed out of the
+seed -- the 4-byte enciphered keyword is therefore command-independent under a
+given keyword. The overwrite is STILL applied (faithfully) before seeding; it
+simply does not reach the surviving seed window. This is a property of the
+literal fold, reproduced here exactly.
 
 This is pure derivation: no WICReset key is spent and no device is touched.
 """
@@ -117,13 +142,18 @@ class ShiftStep:
 
 
 def apply_shift_program(seed: int, steps: tuple[ShiftStep, ...]) -> int:
-    """Evaluate one command.shift <array> as the operator-VM over the seed.
+    """Evaluate ONE command.shift <value> sub-program as the operator-VM.
 
-    Mirrors functor_implementation's inner loop (FUN_004e76c0 @ 0x4e7f..):
-    acc starts at the message seed (uVar10 = uVar8 = local_d4) and each step
-    folds: '=' set, '+' add, '-' sub, '*' mul, '/' div, '%' mod, '&' and,
-    '|' or, '^' xor (32-bit). The first step is typically '=' which loads the
-    step's data, anchoring the program independent of the incoming acc.
+    Mirrors functor_implementation's inner shift-table loop
+    (FUN_004e76c0:348-476, inner loop = local_114 <action> steps): acc
+    (uVar10 = uVar8) starts at the message seed local_d4 and each <action> step
+    folds: '=' set, '+' add, '-' sub, '*' mul, '/' div, '%' mod, '&' and, '|'
+    or, '^' xor (32-bit). A command.shift <array> holds N <value> sub-programs
+    (4 for method-3); the OUTER loop (FUN_004e76c0:340-495, local_128 of them)
+    evaluates each independently from the seed -- acc reset to local_d4 at :342
+    -- producing exactly one shift-table entry per <value>, appended at :492
+    (see :func:`build_shift_table`). The first step is typically '=' which loads
+    the step's data, anchoring the program independent of acc.
     """
     acc = seed & 0xFFFFFFFF
     for step in steps:
@@ -151,6 +181,44 @@ def apply_shift_program(seed: int, steps: tuple[ShiftStep, ...]) -> int:
     return acc & 0xFFFFFFFF
 
 
+# A command.shift <array> is FOUR <value> sub-programs, each a tuple of steps.
+ShiftArray = tuple[tuple[ShiftStep, ...], ...]
+
+
+def build_shift_table(seed: int, shift_array: ShiftArray) -> tuple[int, ...]:
+    """Build the per-position SHIFT TABLE for one command.shift <array>.
+
+    ONE TRUE semantics (FUN_004e76c0:340-495): the OUTER loop iterates the
+    <array>'s <value> sub-programs (local_128 of them), the INNER loop
+    (:348-476, local_114 of them) folds each <value>'s <action> steps. The
+    accumulator is reset to the message seed (uVar10 = local_d4, line 342) at
+    the START of each <value>, and the accumulated result is appended to the
+    shift-table container (local_cc, lines 484-492). Returns exactly one shift
+    value per <value> -- NOT one per <action>. Document/array order is
+    preserved verbatim (load-bearing; the keystream indexes this table by
+    position). Returns one shift value per <value>.
+    """
+    return tuple(apply_shift_program(seed, value) for value in shift_array)
+
+
+# ---------------------------------------------------------------------------
+# functor-3 function block (<function> <code>/<special>/<indexes>) -- RECOVERED
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class FunctionBlock:
+    """One <function> entry: keyed by <code> (= the command id = frame[3]).
+
+    <special> is a flat list of (offset, value) pairs the functor-3 envelope
+    builder writes as envelope[4+offset] := value (FUN_004e8410:120-128).
+    <indexes> scatters the frame[4:] payload bytes into envelope[4+indexes[i]]
+    (FUN_004e8410:129-138).
+    """
+
+    code: int
+    special: tuple[int, ...]
+    indexes: tuple[int, ...]
+
+
 # ---------------------------------------------------------------------------
 # Parsed template method (resolution / encoders <method> block)
 # ---------------------------------------------------------------------------
@@ -163,7 +231,8 @@ class SR5Method:
     keyword_value: tuple[int, ...] | None  # default device keyword, resolution only
     command_index: tuple[tuple[int, ...], ...]   # 5 perm arrays, 20 bytes each
     command_codes: tuple[tuple[int, ...], ...]    # 7 keystream arrays, 20 bytes each
-    command_shift: tuple[tuple[ShiftStep, ...], ...]  # operator-VM arrays
+    command_shift: tuple[ShiftArray, ...]  # 3 <array>s, each 4 <value> sub-programs
+    functions: dict[int, FunctionBlock]    # <function> blocks keyed by <code>
 
 
 @dataclass(frozen=True)
@@ -230,15 +299,22 @@ def _parse_method(block: str) -> SR5Method:
     command_codes = tuple(
         _hexbytes(a) for a in re.findall(r"<array>(.*?)</array>", codes_block, re.S)
     )
-    command_shift: list[tuple[ShiftStep, ...]] = []
+    # Each command.shift <array> holds FOUR <value> sub-programs; each <value>
+    # is its own operator-VM program (a tuple of <action> steps). Parse that
+    # nesting (NOT a flat step list) so build_shift_table can produce one
+    # shift-table entry per <value> (FUN_004e76c0:340-495).
+    command_shift: list[ShiftArray] = []
     for arr in re.findall(r"<array>(.*?)</array>", shift_block, re.S):
-        steps = tuple(
-            ShiftStep(sign=sign, data=int(data))
-            for sign, data in re.findall(
-                r"<sign><!\[CDATA\[(.*?)\]\]></sign><data>(\d+)</data>", arr, re.S
+        values: list[tuple[ShiftStep, ...]] = []
+        for val in re.findall(r"<value>(.*?)</value>", arr, re.S):
+            steps = tuple(
+                ShiftStep(sign=sign, data=int(data))
+                for sign, data in re.findall(
+                    r"<sign><!\[CDATA\[(.*?)\]\]></sign><data>(\d+)</data>", val, re.S
+                )
             )
-        )
-        command_shift.append(steps)
+            values.append(steps)
+        command_shift.append(tuple(values))
 
     return SR5Method(
         handler=handler,
@@ -249,7 +325,30 @@ def _parse_method(block: str) -> SR5Method:
         command_index=command_index,
         command_codes=command_codes,
         command_shift=tuple(command_shift),
+        functions=_parse_functions(block),
     )
+
+
+def _parse_functions(block: str) -> dict[int, FunctionBlock]:
+    """Parse the <function> blocks (keyed by <code>) inside a <method> block.
+
+    Each <function> carries <code>, <special> (offset/value pairs) and
+    <indexes> (payload scatter offsets). Absent in resolution-only methods.
+    """
+    funcs: dict[int, FunctionBlock] = {}
+    for fb in re.findall(r"<function>(.*?)</function>", block, re.S):
+        code_m = re.search(r"<code>(.*?)</code>", fb, re.S)
+        if code_m is None:
+            continue
+        code = _hexbytes(code_m.group(1))[0]
+        sp_m = re.search(r"<special>(.*?)</special>", fb, re.S)
+        ix_m = re.search(r"<indexes>(.*?)</indexes>", fb, re.S)
+        funcs[code] = FunctionBlock(
+            code=code,
+            special=_hexbytes(sp_m.group(1)) if sp_m else (),
+            indexes=_hexbytes(ix_m.group(1)) if ix_m else (),
+        )
+    return funcs
 
 
 def parse_devices_xml(path: Path = DEVICES_XML_DEFAULT) -> SR5Spec:
@@ -308,130 +407,121 @@ def bind_keyword(method: SR5Method, device_keyword: bytes) -> bytes:
 # ---------------------------------------------------------------------------
 # functor 2 (functor_implementation, FUN_004e76c0) -- RECOVERED algorithm
 # ---------------------------------------------------------------------------
-def _message_seed(message: bytes, bound_keyword: bytes) -> int:
-    """local_d4: big-endian fold of the message, mixed with the session keyword.
+def seed_fold(buffer: bytes) -> int:
+    """local_d4: big-endian fold of the COMMAND/ENVELOPE buffer ONLY.
 
-    functor_implementation seeds local_d4 from the buffer it is handed; the
-    per-session encoder (functor_initialization) folds the live device keyword
-    in, so a different keyword perturbs the whole keystream. We combine both
-    deterministically. Crucially the seed is taken over the SAME bytes on both
-    encrypt and decrypt (the recv path folds the ciphertext it decrypts), so we
-    re-seed from the supplied buffer on each direction -- see functor2_transform.
+    FUN_004e76c0:258-266 -- local_d4 = local_d4*0x100 + byte over local_104
+    bytes (param_1, the command/envelope seed source). The keyword does NOT
+    enter the seed; it is bound separately (functor_initialization) and is the
+    *subject* of the transform, not the seed. Note: over a >4-byte buffer only
+    the trailing 4 bytes survive (256^4 == 0 mod 2^32).
     """
     seed = 0
-    for b in message:
+    for b in buffer:
         seed = (seed * 0x100 + b) & 0xFFFFFFFF
-    kw = 0
-    for b in bound_keyword:
-        kw = (kw * 0x100 + b) & 0xFFFFFFFF
-    return (seed ^ kw) & 0xFFFFFFFF
+    return seed
 
 
-def _bijection(base_perm: tuple[int, ...], length: int) -> list[int]:
-    """A true permutation of range(length) derived from the 20-element base.
+def _derive(
+    method: SR5Method, seed: int
+) -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]:
+    """Select the index/codes arrays and build the SHIFT TABLE for ``seed``.
 
-    functor_implementation's i<->perm[i] swap is only invertible when the
-    position map is a bijection over the buffer indices. We rank the buffer
-    positions by (base_perm[pos % 20], pos) so every output index is hit exactly
-    once, preserving the recovered ordering while guaranteeing reversibility.
+    Array selection = seed % {len index (5), len codes (7), len shift (3)}
+    (FUN_004e76c0:286-292). The shift TABLE is built from the selected
+    command.shift <array> by evaluating each of its <value> sub-programs.
     """
-    width = len(base_perm)
-    order = sorted(range(length), key=lambda p: (base_perm[p % width], p))
-    perm = [0] * length
-    for rank, pos in enumerate(order):
-        perm[pos] = rank
-    return perm
-
-
-def _derive(method: SR5Method, seed: int) -> tuple[tuple[int, ...], tuple[int, ...], int]:
-    """Select the index/codes arrays and per-message shift for ``seed``."""
     index_arr = method.command_index[seed % len(method.command_index)]
     codes_arr = method.command_codes[seed % len(method.command_codes)]
     shift_arr = method.command_shift[seed % len(method.command_shift)]
-    shift_val = apply_shift_program(seed, shift_arr)
-    return index_arr, codes_arr, shift_val
+    shift_table = build_shift_table(seed, shift_arr)
+    return index_arr, codes_arr, shift_table
 
 
 def functor2_transform(
     method: SR5Method,
-    message: bytes,
-    bound_keyword: bytes,
+    keyword: bytes,
     *,
-    decrypt: bool,
-    seed_source: bytes | None = None,
+    seed_source: bytes,
+    send: bool = True,
 ) -> bytes:
-    """Symmetric XOR keystream + index permutation (param_5 swaps i<->j).
+    """functor_implementation (FUN_004e76c0): transform the 4-byte keyword.
 
-    The keystream is seeded by the message-fold (local_d4) plus the bound
-    session keyword. functor_implementation folds the buffer it is handed, so
-    the keystream is *data-dependent*. For an exact algebraic inverse the two
-    passes must agree on the seed: encrypt seeds from the plaintext, and decrypt
-    is given that same ``seed_source`` (the plaintext) -- which is exactly what
-    the recv path reconstructs once it has removed the keystream. The transform:
+    Operates on the 4-byte BOUND keyword (``keyword``), seeded by the
+    big-endian fold of the COMMAND/ENVELOPE buffer (``seed_source``). The output
+    loop (FUN_004e76c0:501-534) is bounded by local_e4 = len(keyword) and walks
+    the index/codes/shift tables per output position:
 
-      encrypt:  cipher[perm[i]] = msg[i] ^ ks[i]      (seed = plaintext)
-      decrypt:  msg[i]          = cipher[perm[i]] ^ ks[i]  (seed = plaintext)
+        for i in 0..len:
+            j      = index_arr[i] % len            # FUN_004c1bf0 index walk
+            code   = codes_arr[j % 20]             # second nested walk
+            shift  = shift_table[j % len(table)]   # local_d0 shift-table walk
+            ksbyte = (seed >> (shift & 0x1f)) ^ code
+            send (param_5=1):  out[i] = keyword[j] ^ ksbyte
+            recv (param_5=0):  out[j] = keyword[i] ^ ksbyte
 
-    gives decrypt(encrypt(x)) == x for all x (proven in the round-trip tests).
-    ks[i] = (seed >> (shift & 0x1f)) ^ codes[i % len(codes)].
+    The 20-element index array is reduced modulo the 4-byte buffer length (the
+    binary's bounded keyword buffer); the i<->j map is NOT a bijection for the
+    keyword and the transform is an obfuscating scramble, not an involution
+    (faithful to the binary, whose keyword transform is one-way over 4 bytes).
     """
-    seed = _message_seed(seed_source if seed_source is not None else message, bound_keyword)
-    index_arr, codes_arr, shift_val = _derive(method, seed)
-    perm = _bijection(index_arr, len(message))
-    shamt = shift_val & 0x1F
-
-    ks = bytes(
-        ((seed >> shamt) ^ codes_arr[i % len(codes_arr)]) & 0xFF for i in range(len(message))
-    )
-    out = bytearray(len(message))
-    if decrypt:
-        for i in range(len(message)):
-            out[i] = (message[perm[i]] ^ ks[i]) & 0xFF
-    else:
-        for i in range(len(message)):
-            out[perm[i]] = (message[i] ^ ks[i]) & 0xFF
+    seed = seed_fold(seed_source)
+    index_arr, codes_arr, shift_table = _derive(method, seed)
+    n = len(keyword)
+    out = bytearray(n)
+    for i in range(n):
+        j = index_arr[i % len(index_arr)] % n
+        code = codes_arr[j % len(codes_arr)]
+        shift = shift_table[j % len(shift_table)]
+        ksbyte = ((seed >> (shift & 0x1F)) ^ code) & 0xFF
+        if send:
+            out[i] = (keyword[j] ^ ksbyte) & 0xFF
+        else:
+            out[j] = (keyword[i] ^ ksbyte) & 0xFF
     return bytes(out)
-
-
-# Note on round-trip: the keystream is seeded from the *input* message. encrypt
-# and decrypt must therefore be seeded from the SAME bytes. The decompile folds
-# the buffer it is handed (the ciphertext on the recv/decrypt path), so we seed
-# from the supplied ``message`` on both directions and verify the algebraic
-# inverse holds for the permutation+XOR (proven in the test-suite round-trip).
 
 
 # ---------------------------------------------------------------------------
 # functor 3 (functor_encryption_003, FUN_004e8410) -- RECOVERED
 # ---------------------------------------------------------------------------
-def envelope3(app_frame: bytes) -> bytes:
-    """The deterministic 20-byte preamble functor 3 prepends.
+def envelope3(method: SR5Method, app_frame: bytes) -> bytes:
+    """The deterministic 20-byte functor-3 envelope (the functor-2 SEED).
 
-    [00 12 01 frame[3]] + 16 fixed LCG bytes.  Errors below 4 bytes
-    ("Command buffer is too small.").
+    FUN_004e8410:57-138 -- [00 12 01 frame[3]] + 16 fixed LCG bytes, then:
+      * <special> overwrite: for each (offset, value) pair of the function
+        block keyed by frame[3], envelope[4 + offset] := value (lines 120-128).
+        E.g. code 0x00 -> <special>0x04 0x66</special> => envelope[8] := 0x66
+        (over the 0x96 LCG byte).
+      * <indexes> scatter: envelope[4 + indexes[i]] := frame[4:][i] for each
+        payload byte (lines 129-138).
+    Errors below 4 bytes ("Command buffer is too small.").
     """
     if len(app_frame) < KEYWORD_LEN:
         raise ValueError("Command buffer is too small.")
-    return bytes([0x00, 0x12, 0x01, app_frame[3]]) + lcg16()
+    cmd_id = app_frame[3]
+    env = bytearray([0x00, 0x12, 0x01, cmd_id]) + bytearray(lcg16())
+    block = method.functions.get(cmd_id)
+    if block is not None:
+        # <special>: flat (offset, value) pairs -> env[4 + offset] = value
+        sp = block.special
+        for k in range(0, len(sp) - 1, 2):
+            off = sp[k]
+            if 4 + off < len(env):
+                env[4 + off] = sp[k + 1] & 0xFF
+        # <indexes>: scatter the frame[4:] payload into env[4 + indexes[i]]
+        payload = app_frame[4:]
+        for i, off in enumerate(block.indexes):
+            if i < len(payload) and 4 + off < len(env):
+                env[4 + off] = payload[i]
+    return bytes(env)
 
 
 def functor3_encrypt(method: SR5Method, app_frame: bytes, bound_keyword: bytes) -> bytes:
-    """envelope + functor 2 over (envelope || frame[4:])."""
-    assembled = envelope3(app_frame) + app_frame[4:]
-    return functor2_transform(method, assembled, bound_keyword, decrypt=False)
-
-
-def functor3_decrypt(
-    method: SR5Method, wire: bytes, bound_keyword: bytes, *, assembled_plaintext: bytes
-) -> bytes:
-    """Inverse of functor3_encrypt's functor-2 stage (returns assembled buffer).
-
-    The recv path re-derives the plaintext seed; in the reference encoder we
-    supply the known assembled plaintext as the seed source so the inverse is
-    exact and the round-trip is provable.
-    """
-    return functor2_transform(
-        method, wire, bound_keyword, decrypt=True, seed_source=assembled_plaintext
-    )
+    """Emit the 4-byte enciphered keyword (functor-2 over the bound keyword,
+    seeded by the 20-byte envelope ONLY). Returns 4 bytes -- the wire frame
+    (prefix || these 4 bytes) is assembled by :func:`encode_command`."""
+    envelope = envelope3(method, app_frame)
+    return functor2_transform(method, bound_keyword, seed_source=envelope, send=True)
 
 
 # ---------------------------------------------------------------------------
@@ -465,9 +555,13 @@ def encode_command(
     if method.functor == FUNCTOR_IDENTITY:
         return app_frame
     if method.functor == FUNCTOR_IMPLEMENTATION:
-        return functor2_transform(method, app_frame, bound, decrypt=False)
+        # functor 2 direct: seed from the command app-frame, transform the
+        # bound keyword, emit prefix(CLEAR) || the 4-byte enciphered keyword.
+        enc_kw = functor2_transform(method, bound, seed_source=app_frame, send=True)
+        return app_frame + enc_kw
     if method.functor == FUNCTOR_ENCRYPTION_003:
-        return functor3_encrypt(method, app_frame, bound)
+        # functor 3: envelope is the seed; emit prefix(CLEAR) || 4 enc bytes.
+        return app_frame + functor3_encrypt(method, app_frame, bound)
     raise ValueError(f"unknown functor {method.functor}")
 
 
