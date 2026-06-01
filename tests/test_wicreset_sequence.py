@@ -49,11 +49,15 @@ FP = PrinterFingerprint(
 # them. The test loader mirrors the SSOT shape so we never depend on the real file.
 DERIVED_TEMPLATE = {
     "commands": {
+        # devices.xml on-wire headers (the '0x0000000' arg word collapses to one
+        # wire byte): set_session=81 00 00 03, get_keyword/get_command=82/86 00 00,
+        # set_command=85 00 00 (the 3-byte SEND header). Re-synced 2026-06-01 to
+        # match the shipped SSOT + the validated native frame 85 00 00 || 10 07 7c.
         "set_session": "0x81 0x00 0x00 0x03",
-        "get_version": "0x8A 0x00 0x00 0x00 0x00",
-        "get_keyword": "0x82 0x00 0x00 0x00 0x00",
-        "get_command": "0x86 0x00 0x00 0x00 0x00",
-        "set_command": "0x85 0x00 0x00 0x00 0x00",
+        "get_version": "0x8A 0x00 0x00",
+        "get_keyword": "0x82 0x00 0x00",
+        "get_command": "0x86 0x00 0x00",
+        "set_command": "0x85 0x00 0x00",
     },
     "functions_waste": {
         "common": {"commands": ["0x10 0x07 0x7C", "0x0D 0x00 0x00"]},
@@ -128,12 +132,12 @@ class FakeSessionDevice:
 def test_load_frames_sources_literals_from_ssot() -> None:
     frames = load_wicreset_frames(region="common", load_doc=_validated_doc)
     assert frames.set_session == bytes([0x81, 0x00, 0x00, 0x03])
-    assert frames.get_keyword == bytes([0x82, 0x00, 0x00, 0x00, 0x00])
-    assert frames.get_command == bytes([0x86, 0x00, 0x00, 0x00, 0x00])
-    # set_command = prefix 85 00 00 00 00 + selector 10 07 7C
-    assert frames.set_command_select == bytes([0x85, 0x00, 0x00, 0x00, 0x00, 0x10, 0x07, 0x7C])
-    # set_command = prefix + the 'common' operand 0D 00 00 (the 5B00 clear)
-    assert frames.set_command_reset == bytes([0x85, 0x00, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00])
+    assert frames.get_keyword == bytes([0x82, 0x00, 0x00])
+    assert frames.get_command == bytes([0x86, 0x00, 0x00])
+    # set_command = 3-byte header 85 00 00 + selector 10 07 7C (frame[3]=0x10)
+    assert frames.set_command_select == bytes([0x85, 0x00, 0x00, 0x10, 0x07, 0x7C])
+    # set_command = header + the 'common' operand 0D 00 00 (the 5B00 clear)
+    assert frames.set_command_reset == bytes([0x85, 0x00, 0x00, 0x0D, 0x00, 0x00])
 
 
 def test_load_frames_common_is_the_g6000_clear_operand() -> None:
@@ -322,10 +326,11 @@ def test_execute_drives_ordered_enciphered_sequence() -> None:
     _, sel = dev.calls[2]
     _, rst = dev.calls[3]
     assert ss == b"ENC:" + bytes([0x81, 0x00, 0x00, 0x03])
-    assert gk == b"ENC:" + bytes([0x82, 0x00, 0x00, 0x00, 0x00])
-    # selector + reset operand carried in set_command, enciphered post-keyword
-    assert sel == b"ENCK:" + bytes([0x85, 0x00, 0x00, 0x00, 0x00, 0x10, 0x07, 0x7C])
-    assert rst == b"ENCK:" + bytes([0x85, 0x00, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00])
+    assert gk == b"ENC:" + bytes([0x82, 0x00, 0x00])
+    # selector + reset operand carried in set_command (3-byte header 85 00 00 +
+    # operand), enciphered post-keyword
+    assert sel == b"ENCK:" + bytes([0x85, 0x00, 0x00, 0x10, 0x07, 0x7C])
+    assert rst == b"ENCK:" + bytes([0x85, 0x00, 0x00, 0x0D, 0x00, 0x00])
 
     # the recorded plan steps mirror the same order
     assert [s.kind for s in plan.steps] == [
@@ -500,6 +505,65 @@ def test_four_byte_keyword_is_accepted() -> None:
     assert [kind for kind, _ in dev.calls] == ["recv", "recv", "send", "send", "recv"]
 
 
+def test_keyword_pad_to_pads_short_live_keyword_before_seeding() -> None:
+    """The validated native VENDOR_GET read returns a 3-byte live keyword; with
+    keyword_min_len=3 + keyword_pad_to=4 the op accepts it and 0x00-pads to the
+    4-byte SEED width before seeding the encoder (and reports the padded keyword)."""
+    dev = FakeSessionDevice(keyword_reply=b"\xe4\x7c\x5a")  # 3-byte live keyword
+    enc = FakeEncoder()
+    plan = reset_absorber_wicreset(
+        dev,
+        runtime_fingerprint=FP,
+        eeprom_dump_done=True,
+        encoder=enc,
+        execute=True,
+        verify=_ok_verify,
+        load_doc=_validated_doc,
+        keyword_min_len=3,
+        keyword_pad_to=4,
+    )
+    assert plan.executed is True
+    assert enc.seeded == b"\xe4\x7c\x5a\x00"  # padded to the 4-byte SEED width
+    assert plan.device_keyword == b"\xe4\x7c\x5a\x00"
+    assert [kind for kind, _ in dev.calls] == ["recv", "recv", "send", "send", "recv"]
+
+
+def test_keyword_pad_to_still_rejects_below_min_len() -> None:
+    """keyword_pad_to does NOT relax the live-keyword guard: a reply shorter than
+    keyword_min_len still HARD STOPS before any write (session never opened)."""
+    dev = FakeSessionDevice(keyword_reply=b"\x00\x01")  # 2 bytes < min_len 3
+    with pytest.raises(ResetNotValidatedError):
+        reset_absorber_wicreset(
+            dev,
+            runtime_fingerprint=FP,
+            eeprom_dump_done=True,
+            encoder=FakeEncoder(),
+            execute=True,
+            verify=_ok_verify,
+            load_doc=_validated_doc,
+            keyword_min_len=3,
+            keyword_pad_to=4,
+        )
+    assert [kind for kind, _ in dev.calls] == ["recv", "recv"]
+
+
+def test_commit_instruction_in_executed_summary() -> None:
+    """A real (executed) clear surfaces the MANDATORY clean-power-button commit
+    step in the outcome — the writes + empty 0x86 do not persist by themselves."""
+    dev = FakeSessionDevice(keyword_reply=b"\x11\x22\x33\x44")
+    plan = reset_absorber_wicreset(
+        dev,
+        runtime_fingerprint=FP,
+        eeprom_dump_done=True,
+        encoder=FakeEncoder(),
+        execute=True,
+        verify=_ok_verify,
+        load_doc=_validated_doc,
+    )
+    assert "POWER-BUTTON" in plan.outcome.response_summary
+    assert "UNPLUG does NOT commit" in plan.outcome.response_summary
+
+
 def test_missing_encoder_lazily_builds_lane_a_module() -> None:
     """With no injected encoder, ops lazily imports Lane A's
     canon_megatank.protocol.wicreset.build_encoder. Now that the module has
@@ -515,9 +579,20 @@ def test_missing_encoder_lazily_builds_lane_a_module() -> None:
     )
     assert plan.executed is False
     assert dev.calls == []  # dry-run drives nothing
-    # every frame was enciphered to non-empty wire bytes by the lazily-built encoder
     assert len(plan.steps) == 5
-    assert all(s.wire and s.wire != s.plaintext for s in plan.steps)
+    # Only the two set_command writes carry a secret operand → they are enciphered
+    # to the 23-byte 85 00 00 || payload(20) form (wire != plaintext). set_session
+    # (81 00 00 03), get_keyword (82 00 00) and get_command (86 00 00) are sent
+    # VERBATIM (wire == plaintext): the device length-validates 0x81 to its 4
+    # plaintext bytes and STALLs an enciphered frame, and the read primes ride the
+    # request header (hardware-validated 2026-06-01). All wires are non-empty.
+    by_kind = {s.kind: s for s in plan.steps}
+    assert all(s.wire for s in plan.steps)
+    set_cmd_steps = [s for s in plan.steps if s.kind == "set_command"]
+    assert all(len(s.wire) == 23 and s.wire != s.plaintext for s in set_cmd_steps)  # noqa: PLR2004
+    assert by_kind["set_session"].wire == by_kind["set_session"].plaintext  # plain
+    assert by_kind["get_keyword"].wire == by_kind["get_keyword"].plaintext
+    assert by_kind["get_command"].wire == by_kind["get_command"].plaintext
 
 
 def test_missing_module_refuses_cleanly(monkeypatch: pytest.MonkeyPatch) -> None:

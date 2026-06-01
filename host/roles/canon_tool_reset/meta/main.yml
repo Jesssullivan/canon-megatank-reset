@@ -1,0 +1,17 @@
+---
+galaxy_info:
+  author: tinyland / printstack
+  role_name: canon_tool_reset
+  description: >-
+    Fleet deploy of the validated native libusb Canon MegaTank 5B00 absorber-reset
+    tool + a gated, manual-trigger systemd template unit. Install + scaffold only;
+    never triggers a reset.
+  license: MIT
+  min_ansible_version: '2.15'
+  platforms:
+    - name: EL
+      versions:
+        - '10'
+
+# ansible.posix.synchronize (rsync source path) requires the posix collection.
+dependencies: []

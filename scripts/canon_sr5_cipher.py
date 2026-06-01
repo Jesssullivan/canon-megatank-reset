@@ -43,19 +43,17 @@ docs/research/wicreset-g6020-reset-template.md and the raw decompiles in
 FUN_004e8410):
 
   functor 1 -> identity copy (no transform).
-  functor 2 -> functor_implementation (FUN_004e76c0): transforms ONLY the
-               4-byte BOUND KEYWORD (functor_initialization writes it into
-               local_ec, local_e4=4; the output loop pp-helpers.txt:501-534 is
-               bounded by local_e4=4 and emits 4 bytes). The keystream is
-               seeded big-endian by folding the COMMAND/ENVELOPE buffer ONLY
-               (param_1 -> local_10c -> local_d4; the keyword enters via bind,
-               NOT the seed). The per-byte SHIFT is a TABLE built by the
-               operator-VM over the selected command.shift <array> (its 4
-               <value> sub-programs, pp-helpers.txt:338-495), indexed per
-               output position (pp-helpers.txt:522-526) -- NOT one scalar.
-               Array selection = seed % {5 index, 7 codes, 3 shift}. The index
-               PATH is the nested table-walk FUN_00449110/FUN_004c1bf0 with the
-               send (param_5=1: out[i]=in[perm[i]]^ks) / recv (param_5=0:
+  functor 2 -> functor_implementation (FUN_004e76c0): transforms the SUBJECT
+               buffer, seeded big-endian by folding the SEED buffer. For
+               functor-3 the SUBJECT is the 20-byte envelope and the SEED is the
+               4-byte bound keyword (the RECOVERED, hardware-validated buffer-
+               role swap), so the output is 20 bytes. The per-byte SHIFT is a
+               TABLE built by the operator-VM over the selected command.shift
+               <array> (its 4 <value> sub-programs, pp-helpers.txt:338-495),
+               indexed per output position (pp-helpers.txt:522-526) -- NOT one
+               scalar. Array selection = seed % {5 index, 7 codes, 3 shift}. The
+               index PATH is the nested table-walk FUN_00449110/FUN_004c1bf0 with
+               the send (param_5=1: out[i]=in[perm[i]]^ks) / recv (param_5=0:
                out[perm[i]]=in[i]^ks) swap.
   functor 3 -> functor_encryption_003 (FUN_004e8410): build a 20-byte
                deterministic envelope [00 12 01 <cmd>] + 16 fixed MSVC-rand()
@@ -64,24 +62,23 @@ FUN_004e8410):
                function-block <special> overwrite (e.g. code 0x00 ->
                <special>0x04 0x66</special> => envelope[4+0x04]=envelope[8]:=0x66
                over 0x96, FUN_004e8410:120-128) and the <indexes> payload
-               scatter (FUN_004e8410:129-138), then use that envelope as the
-               functor-2 SEED ONLY and emit 4 enciphered keyword bytes. The
-               wire frame is assembled at the execute_one_command layer as
-               prefix(CLEAR) || the 4-byte enciphered keyword -- NOT a 20-byte
-               blob.
+               scatter (FUN_004e8410:129-138), then run functor-2 with this
+               envelope as the SUBJECT and the bound keyword as the SEED,
+               emitting a 20-byte payload. The wire frame is assembled as
+               85 00 00 || payload(20) = 23 bytes -- NOT app_frame || 4 bytes.
   keyword binding -> functor_initialization (FUN_004e72b0): the per-session
                encoder XORs the live device keyword into the keyword.codes
                table via keyword.index. With the template-default keyword
                this reduces to keyword.value (4D B6 AB 00).
 
-NOTE on the seed fold: local_d4 = local_d4*0x100 + byte over the WHOLE param_1
-buffer (FUN_004e76c0:258-266), mod 2^32. Over the 20-byte functor-3 envelope
-only the trailing 4 bytes survive (256^4 == 0 mod 2^32), so the <special>
-overwrite at envelope[8] and the cmd byte at envelope[3] are washed out of the
-seed -- the 4-byte enciphered keyword is therefore command-independent under a
-given keyword. The overwrite is STILL applied (faithfully) before seeding; it
-simply does not reach the surviving seed window. This is a property of the
-literal fold, reproduced here exactly.
+NOTE on the seed fold: local_d4 = local_d4*0x100 + byte over the SEED buffer
+(FUN_004e76c0:258-266), mod 2^32. For functor-3 the SEED is the 4-byte bound
+keyword, so the whole keyword folds into the seed; the 20-byte envelope is the
+SUBJECT and every envelope byte (including the <special> overwrite and the
+<indexes> payload scatter) reaches the output. The wire payload is therefore
+fully command-dependent (the operand rides the envelope via frame[3] + the
+<indexes> scatter). This is the literal transform, reproduced here exactly and
+validated byte-exact against WICReset's real captured frame.
 
 This is pure derivation: no WICReset key is spent and no device is touched.
 """
@@ -517,11 +514,15 @@ def envelope3(method: SR5Method, app_frame: bytes) -> bytes:
 
 
 def functor3_encrypt(method: SR5Method, app_frame: bytes, bound_keyword: bytes) -> bytes:
-    """Emit the 4-byte enciphered keyword (functor-2 over the bound keyword,
-    seeded by the 20-byte envelope ONLY). Returns 4 bytes -- the wire frame
-    (prefix || these 4 bytes) is assembled by :func:`encode_command`."""
+    """Emit the 20-byte enciphered functor-3 payload.
+
+    RECOVERED buffer roles (hardware-validated 2026-06-01, native libusb 5B00
+    clear): functor-2 runs with the SUBJECT = the 20-byte functor-3 ENVELOPE and
+    the SEED = the 4-byte BOUND keyword (the swapped roles). Returns 20 bytes --
+    the wire frame (``85 00 00 || these 20 bytes`` = 23 bytes) is assembled by
+    :func:`encode_command`."""
     envelope = envelope3(method, app_frame)
-    return functor2_transform(method, bound_keyword, seed_source=envelope, send=True)
+    return functor2_transform(method, envelope, seed_source=bound_keyword, send=True)
 
 
 # ---------------------------------------------------------------------------
@@ -552,16 +553,18 @@ def encode_command(
     bound = bind_keyword(method, device_keyword)
 
     app_frame = bytes(spec.prefixes[set_prefix]) + command_bytes
+    header = app_frame[:3]  # the set_command header (85 00 00); operand rides the envelope
     if method.functor == FUNCTOR_IDENTITY:
         return app_frame
     if method.functor == FUNCTOR_IMPLEMENTATION:
-        # functor 2 direct: seed from the command app-frame, transform the
-        # bound keyword, emit prefix(CLEAR) || the 4-byte enciphered keyword.
-        enc_kw = functor2_transform(method, bound, seed_source=app_frame, send=True)
-        return app_frame + enc_kw
+        # functor 2 direct (swapped roles): SUBJECT = the app frame, SEED = the
+        # bound keyword; emit header || enciphered payload.
+        payload = functor2_transform(method, app_frame, seed_source=bound, send=True)
+        return header + payload
     if method.functor == FUNCTOR_ENCRYPTION_003:
-        # functor 3: envelope is the seed; emit prefix(CLEAR) || 4 enc bytes.
-        return app_frame + functor3_encrypt(method, app_frame, bound)
+        # functor 3: SUBJECT = the 20-byte envelope, SEED = the bound keyword;
+        # emit the 23-byte wire frame 85 00 00 || payload(20).
+        return header + functor3_encrypt(method, app_frame, bound)
     raise ValueError(f"unknown functor {method.functor}")
 
 

@@ -1,0 +1,15 @@
+# udev rules for the canon_tool_reset fleet unit — USB device access.
+# Grants the printstack group read/write on Canon (vendor 04a9) USB devices so
+# the unprivileged canon-reset@.service can open EP0 (the native libusb reset
+# transport) without root.
+#
+# Covers BOTH enumerations of the G6020:
+#   04a9:1865  normal/print mode
+#   04a9:12fe  service mode (the reset path enumerates here)
+#
+# Reload after editing: sudo udevadm control --reload && sudo udevadm trigger
+#
+# NOTE: this matches ANY 04a9 device. If a host has another Canon device that
+# must NOT be touched, narrow to ATTRS{idProduct}=="1865"|"12fe".
+
+SUBSYSTEM=="usb", ATTRS{idVendor}=="04a9", MODE="0660", GROUP="printstack", TAG+="uaccess"

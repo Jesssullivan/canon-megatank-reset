@@ -144,6 +144,34 @@ host-dry:
     @just host-apply '--check --diff'
 
 # ─────────────────────────────────────────────
+# Fleet deploy (Ansible — roll the VALIDATED native reset tool to the fleet)
+# canon_tool_reset role: install + scaffold ONLY. Installs the tool + a GATED,
+# DRY-RUN-by-default, manual-trigger systemd unit (canon-reset@.service). It
+# NEVER triggers a reset — the commit is a manual clean power-button press.
+# ─────────────────────────────────────────────
+
+# Syntax-check the fleet-deploy playbook (no host contact).
+fleet-deploy-syntax:
+    cd {{ root }}/host && ansible-playbook --syntax-check playbooks/canon-fleet-reset.yml
+
+# Dry-run the fleet deploy (--check --diff: shows changes, applies nothing).
+fleet-deploy-check *flags='':
+    @just fleet-deploy '--check --diff' {{ flags }}
+
+# Apply the canon_tool_reset role to the reset_fleet group (install + scaffold:
+# isolated venv, udev rule, state dirs, the DRY-RUN systemd unit). Become pw
+# from $BECOME_PASSWORD_FILE (sops) or --ask-become-pass. NEVER triggers a
+# reset. Usage: just fleet-deploy ['--limit mbp-13' | '--tags systemd']
+fleet-deploy *flags='':
+    @cd {{ root }}/host && \
+      if [ -n "${BECOME_PASSWORD_FILE:-}" ] && [ -r "${BECOME_PASSWORD_FILE:-/nope}" ]; then \
+        ANSIBLE_BECOME_PASS="$(cat "$BECOME_PASSWORD_FILE")" \
+          ansible-playbook -i inventory/hosts.yml playbooks/canon-fleet-reset.yml -l reset_fleet {{ flags }}; \
+      else \
+        ansible-playbook --ask-become-pass -i inventory/hosts.yml playbooks/canon-fleet-reset.yml -l reset_fleet {{ flags }}; \
+      fi
+
+# ─────────────────────────────────────────────
 # Native reset tool (T5 — implemented once the protocol model is validated)
 # ─────────────────────────────────────────────
 
@@ -164,6 +192,15 @@ reset *flags='':
 # it hard-stops. See docs/runbook/wicreset-capture-analysis-pipeline.md.
 replay-control *flags='':
     cd {{ root }} && uv run --no-project python -m canon_megatank replay-control {{ flags }}
+
+# The VALIDATED native libusb 5B00 clear (the path that cleared hardware
+# 2026-06-01). DRY-RUN by default (enciphers + prints the 23-byte frames, no
+# USB). `just reset-native --execute` drives the real sequence behind every
+# safety gate; while the SSOT status is derived-unvalidated it hard-stops unless
+# `--accept-derived` is also passed. After a clear: release the USB handle, then
+# a CLEAN POWER-BUTTON shutdown to commit (unplug does NOT commit).
+reset-native *flags='':
+    cd {{ root }} && uv run --no-project python -m canon_megatank reset-native {{ flags }}
 
 # Pre-flight EEPROM dump (mandatory before any write).
 eeprom-dump:

@@ -1,0 +1,20 @@
+---
+- name: reload udev
+  ansible.builtin.shell: 'udevadm control --reload && udevadm trigger --subsystem-match=usb'
+  changed_when: true
+
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: apply tmpfiles
+  ansible.builtin.command: 'systemd-tmpfiles --create /etc/tmpfiles.d/canon-tool.conf'
+  changed_when: true
+
+- name: rebuild canon-tool venv
+  # Force a re-install of the editable console script after a source sync so the
+  # unit always runs the just-synced code.
+  ansible.builtin.command:
+    cmd: '{{ canon_tool_reset_uv_bin }} pip install --python {{ canon_tool_reset_venv_dir }}/bin/python -e .'
+    chdir: '{{ canon_tool_reset_install_dir }}'
+  changed_when: true

@@ -1,0 +1,82 @@
+# {{ ansible_managed }}
+# canon-reset@.service — GATED native 5B00 absorber-reset (one physical printer
+# per template instance %i). Installed by the canon_tool_reset role.
+#
+# This is a TEMPLATE unit. %i is the per-unit label (a back-panel serial or the
+# inventory host) so each printer gets its own write-budget file, lockfile, and
+# journal stream:
+#
+#     sudo systemctl start canon-reset@<serial>
+#
+# DRY-RUN by default: it enciphers + prints the validated frames and touches no
+# USB. To ever drive a real clear the operator must (1) deploy with the role's
+# execute opt-in (canon_tool_reset_allow_execute_unit + the commit ack), which
+# templates --execute below, and (2) the in-code gates must still pass (UUID
+# isolation, SSOT validation status / --accept-derived, mandatory EEPROM dump,
+# per-unit write budget, lockfile).
+#
+# MANUAL COMMIT (no automation can do this): after a successful clear the
+# operator MUST release the USB handle (the unit exiting does that) and then
+# perform a CLEAN POWER-BUTTON SHUTDOWN of the printer so the printhead parks
+# and the cleared counter is flushed to EEPROM. An abrupt UNPLUG does NOT
+# commit the reset. See `ExecStartPost` echo + the role README.
+
+[Unit]
+Description=Canon MegaTank native 5B00 absorber reset (unit %i) — GATED
+Documentation=file://{{ canon_tool_reset_install_dir }}/host/roles/canon_tool_reset/README.md
+# Refuse to run if the printer isn't present in service mode. ConditionPathExists
+# is advisory; the in-code UUID/fingerprint gate is the real guard.
+After=systemd-udev-settle.service
+Wants=systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+User={{ canon_tool_reset_user }}
+Group={{ canon_tool_reset_group }}
+# systemd provisions these per-boot/per-instance with the right owner so the
+# write-budget + lockfile (src/canon_megatank/lockfile.py) land in the dirs the
+# tool already expects (/var/lib/canon-tool, /run/canon-tool).
+StateDirectory=canon-tool
+RuntimeDirectory=canon-tool
+LogsDirectory=canon-tool
+WorkingDirectory={{ canon_tool_reset_install_dir }}
+
+# The gated CLI. %i is passed through purely as a journal/ops label; the real
+# per-unit serial the tool charges against comes from the SSOT test_unit.
+# NOTE: --execute is only present when the role was deployed with the explicit
+# execute opt-in; otherwise this is a dry-run (prints frames, no USB).
+ExecStart={{ canon_tool_reset_venv_dir }}/bin/canon-megatank reset-native \
+    --product-id {{ canon_tool_reset_product_id }} \
+    --region {{ canon_tool_reset_region }}{% if canon_tool_reset_allow_execute_unit and canon_tool_reset_commit_acknowledged %} \
+    --execute{% if canon_tool_reset_accept_derived %} \
+    --accept-derived{% endif %}{% endif %}
+
+
+# Always surface the mandatory manual commit step in the journal after the unit
+# runs (success or the dry-run preview), so the operator standing at the printer
+# never misses it.
+ExecStartPost=/usr/bin/echo "canon-reset@%i: COMMIT STEP — release USB handle (done on exit), then CLEAN POWER-BUTTON shutdown so the printhead parks + the cleared counter flushes to EEPROM. An abrupt UNPLUG does NOT commit."
+
+# ── Hardening (least privilege; the tool only needs EP0 USB + its state dirs) ──
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+# USB device access: libusb talks to /dev/bus/usb (udev grants the printstack
+# group on 04a9 devices). DeviceAllow keeps the unit from touching anything else.
+DevicePolicy=closed
+DeviceAllow=char-usb_device rw
+DeviceAllow=/dev/bus/usb rw
+
+[Install]
+# Manual-trigger only — NOT WantedBy any target. An operator starts it by hand,
+# at the printer, when ready to commit with a power-button press.

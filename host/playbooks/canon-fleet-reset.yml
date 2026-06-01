@@ -1,0 +1,26 @@
+---
+# Fleet deploy of the VALIDATED native 5B00 absorber-reset tool + its gated,
+# manual-trigger systemd unit. Applies only the canon_tool_reset role.
+#
+# CONTRACT: install + scaffold ONLY. This playbook NEVER drives a reset against
+# any host. Triggering is a deliberate, manual `systemctl start
+# canon-reset@<serial>` by an operator standing at the printer (the commit is a
+# physical clean power-button shutdown). All in-code safety gates remain
+# authoritative. See host/roles/canon_tool_reset/README.md.
+#
+# Recommended flow (via the Justfile):
+#
+#   just fleet-deploy-check          # syntax + --check --diff (no changes)
+#   just fleet-deploy                # apply install + scaffold (dry-run unit)
+#
+# Direct, with become pw from sops / $BECOME_PASSWORD_FILE:
+#
+#   ANSIBLE_BECOME_PASS="$(cat "$BECOME_PASSWORD_FILE")" \
+#     ansible-playbook -i inventory/hosts.yml \
+#       host/playbooks/canon-fleet-reset.yml -l reset_fleet
+
+- name: 'canon-megatank — fleet native reset tool (install + scaffold only)'
+  hosts: reset_fleet
+  become: true
+  roles:
+    - canon_tool_reset

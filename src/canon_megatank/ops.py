@@ -648,6 +648,20 @@ def replay_control_sequence(  # noqa: PLR0913, PLR0912 — gates + injection sea
 # default and refuses to actually write until status == 'verified-captured'.
 
 
+# The MANDATORY post-write commit step. The two set_command writes do NOT persist
+# the cleared counter to EEPROM by themselves, and the get_command (0x86) RECV is
+# empty by design (no finalize command). The clear is COMMITTED by a clean
+# power-button shutdown: release the USB handle first so the printhead can park,
+# then press the power button. An abrupt unplug does NOT commit (the printhead
+# never parks and the EEPROM page is not flushed). Surfaced in the op outcome and
+# printed by the CLI so the operator always sees it after a real run.
+COMMIT_INSTRUCTION = (
+    "NEXT STEP TO COMMIT: release the USB handle, then perform a CLEAN "
+    "POWER-BUTTON shutdown so the printhead parks and the cleared counter is "
+    "flushed to EEPROM. An abrupt UNPLUG does NOT commit the reset."
+)
+
+
 class WicSessionDevice(ReadableDevice, Protocol):
     """A device that can drive the WICReset bulk session: a send-primed RECV
     (``send_and_receive`` — used for set_session/get_keyword/verify) and a
@@ -821,6 +835,7 @@ def reset_absorber_wicreset(  # noqa: PLR0913, PLR0912, PLR0915 — gate ladder 
     timeout_ms: int = 5000,
     keyword_len: int = 64,
     keyword_min_len: int = 4,
+    keyword_pad_to: int | None = None,
     printer_id: str = "canon-g6020",
     verify: Callable[[PrinterFingerprint, str], None] | None = None,
     charge: Callable[[], None] | None = None,
@@ -869,6 +884,15 @@ def reset_absorber_wicreset(  # noqa: PLR0913, PLR0912, PLR0915 — gate ladder 
     shorter than ``keyword_min_len`` HARD STOPS (``ResetNotValidatedError``)
     BEFORE either ``set_command`` write — no enciphered clear is ever sent against
     a keyword we did not actually read.
+
+    Keyword padding (``keyword_pad_to``): the validated native VENDOR_GET
+    (``0xC1/0x82``) read returns a 3-byte live keyword (e.g. ``e4 7c 5a``), but the
+    functor-2 SEED is a 4-byte word, so the cipher binds the padded ``e4 7c 5a 00``.
+    The native CLI path therefore passes ``keyword_min_len=3`` (a 3-byte read is a
+    valid live keyword; only 0–2 bytes means the session never opened) together
+    with ``keyword_pad_to=4`` so the post-guard reply is right-padded with ``0x00``
+    to the SEED width before seeding. Left unset (the default), no padding is done
+    and the >= ``keyword_min_len`` reply is seeded verbatim (prior behavior).
 
     The literal template bytes are SOURCED from the SSOT ``derived_template``
     (via :func:`load_wicreset_frames`), never hardcoded. The cipher is the Lane A
@@ -1010,7 +1034,17 @@ def reset_absorber_wicreset(  # noqa: PLR0913, PLR0912, PLR0915 — gate ladder 
             "ACKed) — refusing to drive the set_command clear keyed off a keyword "
             "we did not read. No write was sent."
         )
-    encoder.seed_keyword(gk_reply)
+    # The validated native VENDOR_GET (0xC1/0x82) read returns a 3-byte live
+    # keyword (e.g. e4 7c 5a); the functor-2 SEED is a 4-byte word, so the cipher
+    # pads it to e4 7c 5a 00 before binding. When ``keyword_pad_to`` is set (the
+    # native path passes keyword_min_len=3 + keyword_pad_to=4) we right-pad the
+    # post-guard reply with 0x00 to that width so a genuine short-but-nonempty live
+    # read seeds the encoder correctly. Unset (default) → no padding (the reply is
+    # already >= keyword_min_len and is seeded verbatim, preserving prior behavior).
+    keyword = gk_reply
+    if keyword_pad_to is not None and len(keyword) < keyword_pad_to:
+        keyword = keyword.ljust(keyword_pad_to, b"\x00")
+    encoder.seed_keyword(keyword)
     steps_out.append(WicResetStep("get_keyword", frames.get_keyword, gk_wire, gk_reply))
 
     # 3. set_command carrying the waste selector 10 07 7C (SEND)
@@ -1025,7 +1059,13 @@ def reset_absorber_wicreset(  # noqa: PLR0913, PLR0912, PLR0915 — gate ladder 
     bytes_sent += rst_n
     steps_out.append(WicResetStep("set_command", frames.set_command_reset, rst_wire))
 
-    # 5. optional get_command verify (send-primed RECV)
+    # 5. optional get_command verify (send-primed RECV).
+    # IMPORTANT: on the validated native sequence the get_command (0x86) RECV is
+    # EMPTY by design — the printer returns zero bytes and there is NO finalize
+    # command. So this readback is purely diagnostic and is NEVER gated on: the
+    # clear is already committed by the two set_command writes above. We do not
+    # assert on gv_reply, and an empty reply is expected, not an error. (The actual
+    # commit is the clean power-button shutdown described below, not 0x86.)
     if verify_readback:
         gv_wire = encoder.encipher(frames.get_command)
         gv_reply = device.send_and_receive(gv_wire, timeout_ms=timeout_ms, length=keyword_len)
@@ -1036,7 +1076,8 @@ def reset_absorber_wicreset(  # noqa: PLR0913, PLR0912, PLR0915 — gate ladder 
     elapsed_ms = int((time.perf_counter() - start) * 1000)
     summary = (
         f"CLEARED via {len(steps_out)} enciphered frames "
-        f"(region={region}, keyword={gk_reply[:4].hex()})"
+        f"(region={region}, keyword={keyword[:4].hex()}). "
+        f"{COMMIT_INSTRUCTION}"
     )
     if override_used:
         summary += " [accept_derived OVERRIDE: drove DERIVED-UNVALIDATED clear]"
@@ -1052,6 +1093,6 @@ def reset_absorber_wicreset(  # noqa: PLR0913, PLR0912, PLR0915 — gate ladder 
         frames=frames,
         steps=tuple(steps_out),
         executed=True,
-        device_keyword=gk_reply,
+        device_keyword=keyword,
         outcome=outcome,
     )

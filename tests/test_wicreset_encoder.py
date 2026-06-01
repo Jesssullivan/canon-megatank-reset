@@ -33,7 +33,6 @@ from canon_megatank.protocol.wicreset import (
     _derive,
     bind_keyword,
     build_encoder,
-    envelope3,
     lcg16,
     load_method_from_ssot,
     seed_fold,
@@ -49,14 +48,28 @@ from canon_megatank.types import (
 # ─── SSOT golden bytes (printers/canon-g6020/maintenance.yaml derived_sequence) ─
 # These are the bytes the SSOT records as produced by the reference encoder for
 # the waste:common clear. They are the canonical correctness anchor.
-# Wire frame = prefix(CLEAR) || 4-byte enciphered keyword (B1-B3): the functor-3
-# envelope is the functor-2 SEED ONLY, functor 2 transforms the 4-byte bound
-# keyword and emits 4 bytes — NOT a 20-byte blob.
-GOLD_DEFAULT_SELECT = bytes.fromhex("85 00 00 10 07 7c 40 40 8f ec".replace(" ", ""))
-GOLD_DEFAULT_RESET = bytes.fromhex("85 00 00 0d 00 00 40 40 8f ec".replace(" ", ""))
+# Wire frame = 85 00 00 || payload(20) = 23 bytes (hardware-validated 2026-06-01,
+# native libusb 5B00 clear): functor-3 runs functor-2 with the SUBJECT = the
+# 20-byte envelope and the SEED = the 4-byte bound keyword (the buffer-role
+# swap), emitting a 20-byte payload — NOT app_frame || a 4-byte keyword.
+GOLD_DEFAULT_SELECT = bytes.fromhex(
+    "85 00 00 9a 4d c7 5b db 67 1a e9 74 13 5e df 77 db b1 66 18 7c 71 57".replace(" ", "")
+)
+GOLD_DEFAULT_RESET = bytes.fromhex(
+    "85 00 00 9a 4d c7 5b 7a f1 1a e9 74 0e 5e df 77 db 9b 1b 18 7c 71 b5".replace(" ", "")
+)
 # After seed_keyword(11 22 33 44) — the SSOT's symbolic-live-keyword illustration.
-GOLD_LIVE_SELECT = bytes.fromhex("85 00 00 10 07 7c 1c 1c cb 74".replace(" ", ""))
-GOLD_LIVE_RESET = bytes.fromhex("85 00 00 0d 00 00 1c 1c cb 74".replace(" ", ""))
+GOLD_LIVE_SELECT = bytes.fromhex(
+    "85 00 00 70 7e aa 7a bf 89 7c be d1 94 7c 7c e1 f1 a8 08 f8 76 84 a1".replace(" ", "")
+)
+GOLD_LIVE_RESET = bytes.fromhex(
+    "85 00 00 70 7e aa 7a 1e 1f 7c be d1 89 7c 7c e1 f1 82 75 f8 76 84 43".replace(" ", "")
+)
+# The validated real-hardware capture (live keyword e4 7c 5a 00 -> bound
+# 00 35 a9 09): WICReset's actual SELECTOR / CLEAR frames, byte-exact (23/23).
+GOLD_HW_KEYWORD = bytes([0xE4, 0x7C, 0x5A, 0x00])
+GOLD_HW_SELECT = bytes.fromhex("850000dbbb006759a1b01f842fd583044a3ac351d2b1ef")
+GOLD_HW_RESET = bytes.fromhex("8500004dbb006759a1b01f842fd58319a83a627bafb1ef")
 
 # The plaintext app frames the SSOT records (3-byte set_command prefix form).
 PT_SELECT = bytes([0x85, 0x00, 0x00, 0x10, 0x07, 0x7C])
@@ -124,18 +137,33 @@ def test_seed_keyword_reset_matches_ssot_live_golden() -> None:
     assert enc.encipher(PT_RESET) == GOLD_LIVE_RESET
 
 
+def test_real_hardware_capture_is_reproduced_byte_exact() -> None:
+    """build_encoder(), seeded with the live keyword captured on the real unit
+    (e4 7c 5a 00 -> bound 00 35 a9 09), reproduces WICReset's actual SELECTOR and
+    CLEAR frames byte-exact (23/23) — the hardware-validated ground truth."""
+    enc = build_encoder()
+    enc.seed_keyword(GOLD_HW_KEYWORD)
+    assert bind_keyword(load_method_from_ssot(), GOLD_HW_KEYWORD) == bytes(
+        [0x00, 0x35, 0xA9, 0x09]
+    )
+    assert enc.encipher(PT_SELECT) == GOLD_HW_SELECT
+    assert enc.encipher(PT_RESET) == GOLD_HW_RESET
+
+
 def test_seed_keyword_changes_every_enciphered_byte() -> None:
-    """A live keyword reseeds functor_initialization → every ENCIPHERED byte
-    differs. The wire is prefix(CLEAR) || 4 enciphered bytes; the 6-byte clear
-    prefix is shared (keyword-independent), so only the 4-byte tail changes."""
+    """A live keyword reseeds functor_implementation (the keyword is the functor-2
+    SEED) → the whole 20-byte enciphered payload differs. The wire is
+    85 00 00 || payload(20); the 3-byte header is keyword-independent, the entire
+    20-byte payload changes."""
     enc = build_encoder()
     default = enc.encipher(PT_SELECT)
     enc.seed_keyword(b"\x11\x22\x33\x44")
     live = enc.encipher(PT_SELECT)
     assert default != live
-    # the clear prefix is identical; the 4-byte enciphered keyword fully differs
-    assert default[:-4] == live[:-4]
-    assert all(d != x for d, x in zip(default[-4:], live[-4:], strict=True))
+    assert len(default) == len(live) == 23  # noqa: PLR2004 — 3-byte header + 20-byte payload
+    # the 3-byte header is identical; every byte of the 20-byte payload differs
+    assert default[:3] == live[:3]
+    assert all(d != x for d, x in zip(default[3:], live[3:], strict=True))
 
 
 def test_seed_keyword_truncates_long_reply_to_four_bytes() -> None:
@@ -153,49 +181,77 @@ def test_seed_keyword_refuses_short_keyword() -> None:
         enc.seed_keyword(b"\x11\x22")
 
 
-# ─── DETERMINISM regression: the set_session / get_keyword handshake frames ─────
-# These are the FINAL deterministic wire bytes a keyed run will send (under the
-# template-default keyword). They were diverging across CPython 3.13/3.14 before
-# the shift-table fix (neo 3.13 -> …2d 2d ba 2b, mbp-13 3.14 -> …2d 2d 3b 2b);
-# the bug was the command.shift <value> ordering + per-<value> semantics. The
-# ONE TRUE shift table for the set_session seed (0x83cf0901, array idx 0) is
-# (0, 1, 0, 0) — the neo value. These bytes are now pinned and asserted equal
-# across interpreters by test_handshake_frames_match_across_interpreters.
+# ─── DETERMINISM regression: the enciphered set_command SELECTOR frame ──────────
+# Only the set_command write (command byte 0x85) carries a secret operand and is
+# enciphered to the 23-byte 85 00 00 || payload(20) form — that is the frame that
+# exercises functor-2 / the command.shift table. set_session (81 00 00 03),
+# get_keyword (82 00 00) and get_command (86 00 00) are sent VERBATIM (plain): the
+# device length-validates 0x81 to its 4 plaintext bytes and STALLs an enciphered
+# one, and the read primes ride the request header (hardware-validated 2026-06-01).
+# So the SELECTOR frame is the load-bearing determinism pin: it was diverging
+# across CPython 3.13/3.14 before the shift-table fix (the bug was the
+# command.shift <value> ordering + per-<value> semantics). For the template-
+# default keyword (bound 00 ff 00 f8, seed 0xff00f8, shift array idx 0) the ONE
+# TRUE per-<value> shift table is (0, 0, 0, 2); the resulting SELECTOR bytes are
+# pinned and asserted equal across interpreters by
+# test_handshake_frames_match_across_interpreters.
 PT_SET_SESSION = bytes([0x81, 0x00, 0x00, 0x03])
-PT_GET_KEYWORD = bytes([0x82, 0x00, 0x00, 0x00, 0x00])
-GOLD_SET_SESSION = bytes.fromhex("81 00 00 03 2d 2d ba 2b".replace(" ", ""))
-GOLD_GET_KEYWORD = bytes.fromhex("82 00 00 00 00 40 40 8f ec".replace(" ", ""))
-# The set_session shift table, pinned to the neo/devices.xml-correct ordering.
-EXPECTED_SET_SESSION_SHIFT_TABLE = (0, 1, 0, 0)
+PT_GET_KEYWORD = bytes([0x82, 0x00, 0x00])
+# set_session / get_keyword are PLAIN — the wire equals the plaintext verbatim.
+GOLD_SET_SESSION = PT_SET_SESSION
+GOLD_GET_KEYWORD = PT_GET_KEYWORD
+# The enciphered set_command SELECTOR frame (template-default keyword): the
+# functor-2 / shift-table path. This is what the determinism check must pin.
+GOLD_DETERMINISM_SELECTOR = GOLD_DEFAULT_SELECT
+# The shift table for the template-default-keyword seed (the functor-2 SEED is
+# now the 4-byte bound keyword 00 ff 00 f8 → seed 0xff00f8 → shift array idx 0).
+EXPECTED_DEFAULT_KEYWORD_SHIFT_TABLE = (0, 0, 0, 2)
 
 
 def test_set_session_wire_is_pinned() -> None:
+    """set_session is PLAIN — sent verbatim, NOT enciphered. The device
+    length-validates 0x81 to exactly its 4 plaintext bytes and STALLs an
+    enciphered frame, so the wire equals the plaintext byte-for-byte."""
     enc = build_encoder()
     assert enc.encipher(PT_SET_SESSION) == GOLD_SET_SESSION
+    assert enc.encipher(PT_SET_SESSION) == PT_SET_SESSION  # wire == plaintext (plain)
 
 
 def test_get_keyword_wire_is_pinned() -> None:
+    """get_keyword is a 3-byte read header → passed through verbatim."""
     enc = build_encoder()
     assert enc.encipher(PT_GET_KEYWORD) == GOLD_GET_KEYWORD
 
 
-def test_set_session_shift_table_is_the_neo_ordering() -> None:
-    """The contested shift table must be (0, 1, 0, 0) — one entry PER <value>
-    in document order — not the mbp-13 (1, 0, 0, 0) per-action/misordered variant."""
+def test_default_keyword_shift_table_is_per_value_ordering() -> None:
+    """The shift table is one entry PER <value> in document order (not per-action
+    / misordered). With the buffer-role swap the functor-2 SEED is the 4-byte
+    bound keyword, so the table is keyed by the keyword fold (0xff00f8), not the
+    frame; for the template-default keyword it is (0, 0, 0, 2)."""
     method = load_method_from_ssot()
-    seed = seed_fold(envelope3(method, PT_SET_SESSION))
+    bound = bind_keyword(method, TEMPLATE_DEFAULT_KEYWORD)
+    seed = seed_fold(bound)
     _index, _codes, shift_table = _derive(method, seed)
-    assert shift_table == EXPECTED_SET_SESSION_SHIFT_TABLE
+    assert shift_table == EXPECTED_DEFAULT_KEYWORD_SHIFT_TABLE
 
 
 def test_handshake_frames_are_deterministic_across_calls() -> None:
     """Repeated builds + encipher calls yield byte-identical frames (no hidden
-    interpreter-order dependence within a single process)."""
+    interpreter-order dependence within a single process). The load-bearing pin is
+    the enciphered set_command SELECTOR frame — the only frame that runs the
+    functor-2 / shift-table path; set_session / get_keyword are plain pass-throughs
+    and exercise no shift table, but we keep them pinned as a verbatim sanity."""
     frames = [
-        (build_encoder().encipher(PT_SET_SESSION), build_encoder().encipher(PT_GET_KEYWORD))
+        (
+            build_encoder().encipher(PT_SELECT),
+            build_encoder().encipher(PT_SET_SESSION),
+            build_encoder().encipher(PT_GET_KEYWORD),
+        )
         for _ in range(8)
     ]
-    assert all(f == (GOLD_SET_SESSION, GOLD_GET_KEYWORD) for f in frames)
+    assert all(
+        f == (GOLD_DETERMINISM_SELECTOR, GOLD_SET_SESSION, GOLD_GET_KEYWORD) for f in frames
+    )
 
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -210,19 +266,25 @@ _DETERMINISM_SNIPPET = textwrap.dedent(
     from canon_megatank.protocol.wicreset import build_encoder
 
     enc = build_encoder()
+    # The enciphered set_command SELECTOR frame is the one that runs the functor-2
+    # / shift-table path — the load-bearing cross-interpreter determinism pin.
+    sel = enc.encipher(bytes([0x85, 0x00, 0x00, 0x10, 0x07, 0x7C]))
+    # set_session / get_keyword are plain pass-throughs (verbatim sanity).
     ss = enc.encipher(bytes([0x81, 0x00, 0x00, 0x03]))
-    gk = enc.encipher(bytes([0x82, 0x00, 0x00, 0x00, 0x00]))
+    gk = enc.encipher(bytes([0x82, 0x00, 0x00]))
+    print(sel.hex())
     print(ss.hex())
     print(gk.hex())
     """
 ).strip()
 
 
-def _encode_under(version: str) -> tuple[str, str]:
+def _encode_under(version: str) -> tuple[str, str, str]:
     """Run the encode under a specific CPython version in an ISOLATED ephemeral
-    env (``uv run --no-project --with ruamel.yaml``) and return the two hex
-    frames. ``--no-project`` keeps this from mutating the project ``.venv``; the
-    snippet injects ``src/`` on sys.path so the package imports without install."""
+    env (``uv run --no-project --with ruamel.yaml``) and return the three hex
+    frames (enciphered SELECTOR, plain set_session, plain get_keyword).
+    ``--no-project`` keeps this from mutating the project ``.venv``; the snippet
+    injects ``src/`` on sys.path so the package imports without install."""
     snippet = _DETERMINISM_SNIPPET.format(src=str(_REPO_ROOT / "src"))
     out = subprocess.run(  # noqa: S603 - fixed args, test-only
         [
@@ -235,28 +297,30 @@ def _encode_under(version: str) -> tuple[str, str]:
         cwd=str(_REPO_ROOT),
         check=True,
     )
-    # The two hex frames are the only pure-hex stdout lines (uv logs go to stderr).
+    # The three hex frames are the only pure-hex stdout lines (uv logs go to stderr).
     hexlines = [
         ln.strip()
         for ln in out.stdout.splitlines()
         if ln.strip() and all(c in "0123456789abcdef" for c in ln.strip())
     ]
-    return hexlines[-2], hexlines[-1]
+    return hexlines[-3], hexlines[-2], hexlines[-1]
 
 
 @pytest.mark.parametrize("version", ["3.13", "3.14"])
 def test_handshake_frames_match_across_interpreters(version: str) -> None:
-    """The set_session / get_keyword wire bytes are byte-identical under BOTH
-    CPython 3.13 and 3.14 — the cross-interpreter determinism guarantee. Skips
-    cleanly when ``uv`` (or the requested interpreter) is unavailable; the
-    within-process pins above always run."""
+    """The enciphered set_command SELECTOR wire bytes are byte-identical under BOTH
+    CPython 3.13 and 3.14 — the cross-interpreter determinism guarantee for the
+    functor-2 / shift-table path (set_session / get_keyword are plain and ride
+    along as a verbatim sanity). Skips cleanly when ``uv`` (or the requested
+    interpreter) is unavailable; the within-process pins above always run."""
     if shutil.which("uv") is None:
         pytest.skip("uv not on PATH — cross-interpreter check requires uv")
     try:
-        ss_hex, gk_hex = _encode_under(version)
+        sel_hex, ss_hex, gk_hex = _encode_under(version)
     except (subprocess.CalledProcessError, IndexError) as exc:
         detail = getattr(exc, "stderr", str(exc)) or str(exc)
         pytest.skip(f"CPython {version} unavailable via uv: {detail.strip()[-200:]}")
+    assert bytes.fromhex(sel_hex) == GOLD_DETERMINISM_SELECTOR
     assert bytes.fromhex(ss_hex) == GOLD_SET_SESSION
     assert bytes.fromhex(gk_hex) == GOLD_GET_KEYWORD
 

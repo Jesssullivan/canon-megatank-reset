@@ -95,7 +95,20 @@ supported:
   absorber_reset:
     name: 'Ink Absorber Counter — Set/reset'
     risk: write-eeprom
-    status: derived-unvalidated              # derived statically; not yet physically validated
+    # STATUS NOTE (2026-06-01): the native libusb clear (the WICReset-derived
+    # enciphered session driven over the usbprint VENDOR control transport — see
+    # derived_sequence.validation: hardware-validated below) DID clear 5B00 on the
+    # real debug unit: the printer rebooted to normal mode 04a9:1865 after a clean
+    # power-button shutdown. The cipher + 23-byte framing reproduce WICReset's
+    # captured frames byte-exact (hardware_validated_frames). We deliberately KEEP
+    # status `derived-unvalidated`: per repo convention the verified-captured
+    # promotion is a manual, per-physical-unit decision gated on a pads-installed
+    # validation run with a fresh EEPROM baseline, not an automatic flip from one
+    # debug-unit success. ops.reset_absorber_wicreset / `canon-megatank
+    # reset-native --execute` therefore still require the explicit accept_derived /
+    # --accept-derived one-run override on this DERIVED-UNVALIDATED SSOT; the
+    # operator promotes status by hand after a clean, pads-installed run.
+    status: derived-unvalidated              # native clear hardware-validated; manual promotion still required
     operation_group: 7                       # FUN_0040ac60 group selector
     pre_transform_payload: '[00, 03, flags, 03, idx]'  # flags 0x01|0x81 (checkbox); idx = absorber selector
     # Recovered literals (Service Tool v5103, label-confirmed):
@@ -171,12 +184,18 @@ supported:
       functor: 0x03                              # functor-3 (LCG envelope + XOR keystream) — resolves the static "2 vs 3?" wall
       support: 'query;waste:common'              # G6000 family clears ONLY the 'common' absorber (the 5B00 main)
       # ── Command prefixes (the session-frame headers) ─────────────────────────
+      # Re-synced from the devices.xml-parsed <commands> prefixes (2026-06-01):
+      # the literal '0x0000000' arg word collapses to a single wire byte, so the
+      # real on-wire headers are set_session=81 00 00 03, get_keyword/get_command=
+      # 82/86 00 00, set_command=85 00 00 (3-byte SEND header). The earlier
+      # 5-token 85 00 00 00 00 form put frame[3]=0x00 (wrong function block) and
+      # diverged from the validated native frame 85 00 00 || 10 07 7c.
       commands:
         set_session: '0x81 0x00 0x00 0x03'
-        get_version: '0x8A 0x00 0x00 0x00 0x00'
-        get_keyword: '0x82 0x00 0x00 0x00 0x00'  # RECV returns the live device keyword (the one residual input)
-        get_command: '0x86 0x00 0x00 0x00 0x00'
-        set_command: '0x85 0x00 0x00 0x00 0x00'
+        get_version: '0x8A 0x00 0x00'
+        get_keyword: '0x82 0x00 0x00'            # RECV returns the live device keyword (the one residual input)
+        get_command: '0x86 0x00 0x00'
+        set_command: '0x85 0x00 0x00'
       # ── functions.waste rows: selector 10 07 7C then reset operand 0D <region> 00 ─
       functions_waste:
         away: { commands: ['0x10 0x07 0x7C', '0x0D 0x05 0x00'] }
@@ -223,20 +242,82 @@ supported:
         - [[{ sign: '&', data: 1 }], [{ sign: '=', data: 1 }], [{ sign: '%', data: 5 }], [{ sign: '=', data: 0 }]]
         - [[{ sign: '&', data: 1 }], [{ sign: '=', data: 0 }], [{ sign: '=', data: 0 }], [{ sign: '=', data: 2 }]]
       # ── functor-3 functions code→special→indexes (absorber/waste op remap) ───
-      # 44 rows (code 0x00–0x43, sparse); full table in devices.xml. Key rows:
+      # FULL 67-row table (code 0x00–0x43, sparse: 0x1F and 0x31 absent in the
+      # source), re-synced VERBATIM from the devices.xml-parsed SR5 method
+      # (scripts/canon_sr5_cipher.parse_devices_xml -> encoder_for_method(3))
+      # on 2026-06-01. The earlier truncated 13-row subset dropped code 0x10
+      # (the SELECTOR's frame[3]), whose <special>/<indexes> overwrite the
+      # envelope at offsets 5/9/13 — the 17/20 SSOT drift. Each function block is
+      # keyed by <code> (= the command id frame[3]); <special> is flat
+      # (offset, value) pairs written as env[4+offset]:=value, <indexes> scatters
+      # the frame[4:] payload into env[4+indexes[i]].
       functor3_functions:
         0x00: { special: '0x04 0x66', indexes: [] }
         0x01: { special: '0x05 0x22', indexes: ['0x07'] }
         0x02: { special: '0x00 0x87', indexes: [] }
         0x03: { special: '0x0F 0x01', indexes: ['0x03'] }
         0x04: { special: '0x09 0xA3', indexes: ['0x08'] }
+        0x05: { special: '0x07 0x66', indexes: [] }
+        0x06: { special: '0x01 0x81', indexes: [] }
         0x07: { special: '0x04 0x0F', indexes: ['0x01', '0x03'] }
         0x08: { special: '0x0B 0x91', indexes: ['0x06', '0x01'] }
         0x09: { special: '0x02 0x22', indexes: ['0x07', '0x0A'] }
+        0x0A: { special: '0x06 0x02', indexes: [] }
+        0x0B: { special: '0x06 0xCC', indexes: ['0x02', '0x0D'] }
+        0x0C: { special: '0x02 0xA8', indexes: [] }
         0x0D: { special: '0x05 0x01', indexes: ['0x03', '0x04'] }
+        0x0E: { special: '0x0A 0x10', indexes: ['0x0B'] }
         0x0F: { special: '0x02 0x02', indexes: ['0x01'] }
+        0x10: { special: '0x01 0xDD', indexes: ['0x09', '0x05'] }
+        0x11: { special: '0x00 0xB4', indexes: ['0x0C'] }
+        0x12: { special: '0x03 0x3A', indexes: ['0x02', '0x0A'] }
+        0x13: { special: '0x01 0xAA', indexes: ['0x05'] }
+        0x14: { special: '0x07 0x03', indexes: ['0x06'] }
+        0x15: { special: '0x03 0x6D', indexes: [] }
+        0x16: { special: '0x08 0x91', indexes: [] }
+        0x17: { special: '0x04 0x49', indexes: [] }
+        0x18: { special: '0x0C 0x12', indexes: ['0x0D'] }
+        0x19: { special: '0x0C 0x61', indexes: [] }
+        0x1A: { special: '0x02 0x09', indexes: ['0x01'] }
+        0x1B: { special: '0x01 0xDD', indexes: [] }
+        0x1C: { special: '0x03 0x93', indexes: [] }
+        0x1D: { special: '0x0A 0x04', indexes: [] }
+        0x1E: { special: '0x07 0x71', indexes: [] }
+        0x20: { special: '0x06 0xC2', indexes: [] }
         0x21: { special: '0x02 0x12', indexes: ['0x08'] }
+        0x22: { special: '0x08 0x88', indexes: [] }
+        0x23: { special: '0x0E 0xEE', indexes: [] }
+        0x24: { special: '0x09 0x99', indexes: [] }
+        0x25: { special: '0x0D 0x02', indexes: [] }
+        0x26: { special: '0x01 0x19', indexes: [] }
+        0x27: { special: '0x05 0x59', indexes: ['0x08'] }
+        0x28: { special: '0x0B 0x22', indexes: ['0x01'] }
+        0x29: { special: '0x02 0x89', indexes: [] }
+        0x2A: { special: '0x0A 0xCA', indexes: [] }
+        0x2B: { special: '0x07 0x35', indexes: [] }
+        0x2C: { special: '0x08 0x40', indexes: [] }
+        0x2D: { special: '0x06 0x34', indexes: [] }
         0x2E: { special: '0x07 0x82', indexes: ['0x08', '0x09'] }
+        0x2F: { special: '0x05 0x17', indexes: ['0x03', '0x0A'] }
+        0x30: { special: '0x03 0x56', indexes: ['0x01'] }
+        0x31: { special: '0x04 0x62', indexes: [] }
+        0x32: { special: '0x02 0x38', indexes: [] }
+        0x33: { special: '0x04 0x57', indexes: ['0x08'] }
+        0x34: { special: '0x0E 0x13', indexes: [] }
+        0x35: { special: '0x0D 0x78', indexes: ['0x0A'] }
+        0x36: { special: '0x04 0x24', indexes: ['0x03'] }
+        0x37: { special: '0x0B 0x60', indexes: [] }
+        0x38: { special: '0x09 0x26', indexes: [] }
+        0x39: { special: '0x0A 0xB5', indexes: [] }
+        0x3A: { special: '0x08 0x05', indexes: [] }
+        0x3B: { special: '0x0C 0x50', indexes: [] }
+        0x3C: { special: '0x07 0x77', indexes: [] }
+        0x3D: { special: '0x0F 0x29', indexes: [] }
+        0x3E: { special: '0x02 0xE7', indexes: [] }
+        0x3F: { special: '0x05 0x9D', indexes: [] }
+        0x40: { special: '0x0B 0x83', indexes: [] }
+        0x41: { special: '0x06 0xEB', indexes: [] }
+        0x42: { special: '0x04 0x70', indexes: ['0x08'] }
         0x43: { special: '0x0D 0x2C', indexes: ['0x0A'] }
       # ── functor-3 envelope (deterministic; from the static lane) ─────────────
       functor3_envelope:
@@ -267,55 +348,65 @@ supported:
       # for the one-run live validation on the dedicated debug unit. See
       # docs/runbook/g6020-live-validation.md.
       derived_sequence:
-        validation: derived-not-yet-live-validated
+        validation: hardware-validated                # native libusb 5B00 clear, 2026-06-01
         encoder_ref: scripts/canon_sr5_cipher.py    # the tested reference encoder
         keyword_form: template-default               # 4D B6 AB 00 -> bound 00 FF 00 F8
-        wire_frame: 'prefix(CLEAR) || 4-byte enciphered keyword'  # execute_one_command framing (B1-B3)
+        wire_frame: '85 00 00 || payload(20)'        # 23-byte set_command frame (buffer-role swap)
         confidence: |
-          HIGH for set_command[10 07 7C] / set_command[0D 00 00] (reproduced
-          byte-exact by the tested reference encoder; MEDIUM only on the literal
-          ciphertext per the FUN_004e76c0 decompile, pending a keyed capture).
-          set_session/get_keyword/get_command are the functor-3 handshake/read
-          frames (LOW-stakes: the device RECV reply is what matters, not their
-          exact ciphertext). On a LIVE run every enciphered byte changes — the
-          live keyword read at step 2 reseeds functor_initialization (binding).
-        # Each frame: plaintext app frame -> on-wire bytes = the CLEAR prefix
-        # (the plaintext app frame) followed by the 4-byte enciphered keyword.
-        # The functor-3 envelope is the functor-2 SEED ONLY; functor 2 transforms
-        # the 4-byte bound keyword and emits 4 bytes (NOT a 20-byte blob). The big-
-        # endian seed fold mod 2^32 keeps only the trailing 4 envelope bytes, so
-        # under a given keyword every functor-3 command shares the same enciphered
-        # keyword EXCEPT where a <special> overwrite lands in env[16..19] (e.g.
-        # set_session code 0x03 special offset 0x0F -> env[19], which DOES shift it).
+          VALIDATED for set_command[10 07 7C] / set_command[0D 00 00]: with the
+          real captured live keyword (e4 7c 5a 00 -> bound 00 35 a9 09) the encoder
+          reproduces WICReset's actual SELECTOR/CLEAR frames byte-exact (23/23) —
+          see hardware_validated_frames below. The genuine set_command is functor-2
+          with the buffer roles SWAPPED: SUBJECT = the 20-byte functor-3 envelope,
+          SEED = the 4-byte bound keyword → a 20-byte payload, framed 85 00 00 ||
+          payload. set_session is enciphered the same way; get_keyword/get_command
+          are bare 3-byte READ headers (control-IN; the RECV reply is what matters,
+          so they go on the wire verbatim). On a LIVE run the keyword read at step 2
+          reseeds the functor-2 SEED so the whole 20-byte payload changes (binding).
+        # Each set_command frame: plaintext app frame (85 00 00 || operand) ->
+        # on-wire bytes = the 3-byte header (85 00 00) || the 20-byte enciphered
+        # functor-3 payload. The functor-3 envelope is the functor-2 SUBJECT and
+        # the 4-byte bound keyword is the SEED; the operand rides the envelope via
+        # frame[3] (function-block selector) + the <indexes> scatter, so the whole
+        # payload is command-dependent (SELECTOR != CLEAR). Bytes below are the
+        # template-default-keyword (4D B6 AB 00 -> bound 00 FF 00 F8) form.
         frames:
           set_session:
             plaintext: '81 00 00 03'
-            wire: '81 00 00 03 2d 2d ba 2b'
+            wire: '81 00 00 9a 4d c7 5b db 67 1a e9 1a 00 5e df 77 db 9b 8f 18 7c 71 b5'
           get_keyword:
-            plaintext: '82 00 00 00 00'
-            wire: '82 00 00 00 00 40 40 8f ec'
+            plaintext: '82 00 00'                   # bare read header -> on the wire verbatim
+            wire: '82 00 00'
             recv: 'live 4-byte device keyword (the one residual input)'
           set_command_select:                       # waste-row selector 10 07 7C
             plaintext: '85 00 00 10 07 7c'
-            wire: '85 00 00 10 07 7c 40 40 8f ec'
+            wire: '85 00 00 9a 4d c7 5b db 67 1a e9 74 13 5e df 77 db b1 66 18 7c 71 57'
           set_command_reset:                        # 'common' operand 0D 00 00 == the 5B00 clear
             plaintext: '85 00 00 0d 00 00'
-            wire: '85 00 00 0d 00 00 40 40 8f ec'
+            wire: '85 00 00 9a 4d c7 5b 7a f1 1a e9 74 0e 5e df 77 db 9b 1b 18 7c 71 b5'
           get_command_verify:
-            plaintext: '86 00 00 00 00'
-            wire: '86 00 00 00 00 40 40 8f ec'
+            plaintext: '86 00 00'                   # bare read header -> on the wire verbatim
+            wire: '86 00 00'
+        # The REAL hardware-validated frames (the WICReset captured live keyword
+        # e4 7c 5a 00 -> bound 00 35 a9 09). build_encoder + canon_sr5_cipher both
+        # reproduce these byte-exact (23/23) — the ground-truth anchor.
+        hardware_validated_frames:
+          live_keyword: 'e4 7c 5a 00'               # padded from the 3B device read e4 7c 5a
+          bound_keyword: '00 35 a9 09'
+          set_command_select: '85 00 00 db bb 00 67 59 a1 b0 1f 84 2f d5 83 04 4a 3a c3 51 d2 b1 ef'
+          set_command_reset: '85 00 00 4d bb 00 67 59 a1 b0 1f 84 2f d5 83 19 a8 3a 62 7b af b1 ef'
         live_keyword_substitution: |
-          The bytes above are the template-default-keyword (4D B6 AB 00 -> bound
+          The 'frames' bytes are the template-default-keyword (4D B6 AB 00 -> bound
           00 FF 00 F8) form. On a LIVE run the get_keyword RECV at step 2 returns
           the printer's real 4-byte keyword; ops feeds it to encoder.seed_keyword,
-          which reseeds functor_initialization, so the 4 enciphered keyword bytes
-          of set_command_select / set_command_reset change (device binding).
-          Illustration with a symbolic live keyword 11 22 33 44 (bound 44 6B 5C 60):
-            set_command[10 07 7C] -> 85 00 00 10 07 7c 1c 1c cb 74
-            set_command[0D 00 00] -> 85 00 00 0d 00 00 1c 1c cb 74
+          which reseeds the functor-2 SEED, so the whole 20-byte payload of
+          set_command_select / set_command_reset changes (device binding). With the
+          symbolic live keyword 11 22 33 44 (bound 44 6B 5C 60):
+            set_command[10 07 7C] -> 85 00 00 70 7e aa 7a bf 89 7c be d1 94 7c 7c e1 f1 a8 08 f8 76 84 a1
+            set_command[0D 00 00] -> 85 00 00 70 7e aa 7a 1e 1f 7c be d1 89 7c 7c e1 f1 82 75 f8 76 84 43
           The default-keyword wire bytes are therefore NOT what goes on the wire
           live — they are the key-free derivation; the live keyword is the only
-          runtime input.
+          runtime input. See hardware_validated_frames for the real captured frame.
 
 # ─── Safety budget ────────────────────────────────────────────────────────────
 

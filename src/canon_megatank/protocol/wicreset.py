@@ -18,30 +18,31 @@ on the ephemeral ``/tmp/appbin_out/devices.xml`` and never vendors any Canon
 binary. The cipher MATH below is ported verbatim from the validated reference
 ``scripts/canon_sr5_cipher.py`` (20 passing tests).
 
-The algorithm (RECOVERED, see docs/research/g6020-cipher-fix.md):
+The algorithm (RECOVERED + hardware-validated 2026-06-01; native libusb 5B00
+clear, see docs/research/g6020-cipher-fix.md):
 
   functor 3 -> functor_encryption_003 (FUN_004e8410): build a 20-byte
                deterministic envelope ``[00 12 01 frame[3]]`` + 16 fixed
                MSVC-rand() bytes (seed 0x12345678), apply the function-block
                ``<special>`` overwrite (envelope[4+off]:=val) and the
-               ``<indexes>`` payload scatter, then use that envelope as the
-               functor-2 SEED ONLY and emit the 4-byte enciphered keyword.
-  functor 2 -> functor_implementation (FUN_004e76c0): transforms ONLY the
-               4-byte BOUND keyword (functor_initialization writes it; the
-               output loop is bounded by len==4). Seeded big-endian by folding
-               the COMMAND/ENVELOPE buffer ONLY (the keyword enters via bind,
-               not the seed). The per-byte SHIFT is a TABLE built by the
-               operator-VM over the selected command.shift <array>'s <value>
-               sub-programs, indexed per output position. Array selection =
-               seed % {5 index, 7 codes, 3 shift}; the index path is the nested
-               table-walk with the send/recv swap.
+               ``<indexes>`` payload scatter, then run functor-2 with this
+               20-byte envelope as the SUBJECT and the bound keyword as the
+               SEED, emitting a 20-byte enciphered payload.
+  functor 2 -> functor_implementation (FUN_004e76c0): transforms the SUBJECT
+               buffer (the 20-byte envelope for functor-3), seeded big-endian by
+               folding the SEED buffer (the 4-byte bound keyword). The per-byte
+               SHIFT is a TABLE built by the operator-VM over the selected
+               command.shift <array>'s <value> sub-programs, indexed per output
+               position. Array selection = seed % {5 index, 7 codes, 3 shift};
+               the index path is the nested table-walk with the send/recv swap.
   keyword   -> functor_initialization (FUN_004e72b0): the per-session encoder
                XORs the live device keyword into keyword.codes via keyword.index;
                with the template-default keyword (4D B6 AB 00) this reduces to
                the canonical session keyword.
 
-The on-wire frame is ``prefix(CLEAR) || 4-byte enciphered keyword`` — NOT a
-20-byte blob; the envelope is the functor-2 SEED, not the transform subject.
+The on-wire frame is ``85 00 00 || payload(20)`` = 23 bytes — NOT
+``app_frame || 4-byte keyword``. The 20-byte envelope is the functor-2 SUBJECT
+and the 4-byte bound keyword is the SEED (the validated buffer-role swap).
 
 This is pure derivation: no WICReset key is spent and no device is touched.
 """
@@ -61,6 +62,7 @@ LCG_SEED0 = 0x12345678  # hard-coded seed -> the 16 envelope bytes are CONSTANT
 
 KEYWORD_LEN = 4  # the keyword is always a 4-byte word
 ENVELOPE_LEN = 20  # functor-3 preamble: 4 header bytes + 16 fixed LCG bytes
+SET_COMMAND_CMD_BYTE = 0x85  # the only command whose operand is enciphered (the 23-byte write)
 
 # functor selector values (devices.xml <functor> field)
 FUNCTOR_IDENTITY = 1
@@ -273,10 +275,20 @@ def envelope3(method: SR5Method, app_frame: bytes) -> bytes:
 
 
 def functor3_encrypt(method: SR5Method, app_frame: bytes, bound_keyword: bytes) -> bytes:
-    """Emit the 4-byte enciphered keyword (functor-2 over the bound keyword,
-    seeded by the 20-byte envelope ONLY)."""
+    """Emit the 20-byte enciphered functor-3 payload.
+
+    RECOVERED buffer roles (validated byte-exact on real hardware 2026-06-01,
+    native libusb 5B00 clear): the genuine ``set_command`` runs functor-2 with
+    the buffer roles SWAPPED from the earlier (wrong) 4-byte model. The functor-2
+    SUBJECT is the 20-byte functor-3 ENVELOPE and the SEED is the 4-byte BOUND
+    keyword:
+
+        functor2_transform(method, envelope3(app), seed_source=bound_keyword)
+
+    so the output is 20 bytes (the envelope length), NOT 4. The on-wire frame is
+    then ``85 00 00 || payload`` (23 bytes), assembled by the caller."""
     envelope = envelope3(method, app_frame)
-    return functor2_transform(method, bound_keyword, seed_source=envelope, send=True)
+    return functor2_transform(method, envelope, seed_source=bound_keyword, send=True)
 
 
 # ─── SSOT loading: build SR5Method from derived_template (never devices.xml) ────
@@ -434,20 +446,43 @@ class WicResetEncoder:
     def encipher(self, plaintext_app_frame: bytes) -> bytes:
         """Encipher a plaintext ``[cmd][arg…][payload]`` app frame.
 
-        Returns the full on-wire frame: ``prefix(CLEAR) || 4-byte enciphered
-        keyword``. The clear prefix is the plaintext app frame itself; the
-        cipher (functor 2 over the bound keyword, seeded by the functor-3
-        envelope) appends the 4 enciphered keyword bytes. This is the
-        execute_one_command framing — NOT a 20-byte blob."""
+        For a ``set_command`` write (the SELECTOR / CLEAR frames, which carry a
+        ≥1-byte operand after the 3-byte header) this returns the full on-wire
+        frame: the 3-byte set_command header (``85 00 00``) followed by the
+        20-byte enciphered functor-3 payload — a 23-byte frame. The functor-3
+        payload is functor-2 run with the SUBJECT = the 20-byte envelope and the
+        SEED = the 4-byte bound keyword (the validated buffer-role swap), NOT the
+        earlier 4-byte ``app_frame || keyword`` blob. The operand bytes
+        (``frame[3:]``, e.g. ``10 07 7c``) ride into the envelope via frame[3]
+        (the function-block selector) + the ``<indexes>`` payload scatter, so
+        they are NOT repeated on the wire.
+
+        The bare READ headers (``get_keyword`` = ``82 00 00`` and ``get_command``
+        = ``86 00 00``) carry no encipherable operand — in the validated native
+        sequence they are control-IN reads whose command rides the request header
+        and whose RECV reply is what matters. They are < 4 bytes (no frame[3] to
+        select a function block), so they pass through verbatim rather than being
+        forced through the functor-3 envelope."""
         frame = bytes(plaintext_app_frame)
-        bound = bind_keyword(self._method, self._keyword)
         if self._method.functor == FUNCTOR_IDENTITY:
             return frame
+        # Only the set_command write (command byte 0x85) carries a secret operand
+        # that is enciphered into the 23-byte `85 00 00 || payload(20)` wire form.
+        # set_session (`81 00 00 03`), get_keyword (`82 00 00`) and get_command
+        # (`86 00 00`) are sent VERBATIM: the device length-validates set_session
+        # to exactly its 4 plaintext bytes and STALLs an enciphered frame, and the
+        # read primes ride the request header (validated 2026-06-01 on hardware).
+        if not frame or frame[0] != SET_COMMAND_CMD_BYTE:
+            return frame
+        bound = bind_keyword(self._method, self._keyword)
+        header = frame[:3]
         if self._method.functor == FUNCTOR_IMPLEMENTATION:
-            enc_kw = functor2_transform(self._method, bound, seed_source=frame, send=True)
-            return frame + enc_kw
+            # functor-2 direct: SUBJECT = the app frame, SEED = the bound keyword
+            # (same swapped buffer roles), emit header || enciphered payload.
+            payload = functor2_transform(self._method, frame, seed_source=bound, send=True)
+            return header + payload
         if self._method.functor == FUNCTOR_ENCRYPTION_003:
-            return frame + functor3_encrypt(self._method, frame, bound)
+            return header + functor3_encrypt(self._method, frame, bound)
         raise CanonToolError(f"unknown functor {self._method.functor}")
 
 

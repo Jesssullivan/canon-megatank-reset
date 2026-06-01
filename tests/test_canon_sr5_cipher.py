@@ -243,7 +243,7 @@ def test_waste_common_cleartext() -> None:
 
 
 @needs_xml
-def test_waste_common_functor3_emits_four_byte_keyword() -> None:
+def test_waste_common_functor3_emits_twenty_byte_payload() -> None:
     spec = csr5.parse_devices_xml(DEVICES_XML)
     waste = csr5.parse_waste_rows(DEVICES_XML)
     m3 = spec.encoder_for_method(3)
@@ -252,8 +252,11 @@ def test_waste_common_functor3_emits_four_byte_keyword() -> None:
         frame = bytes(spec.prefixes["set_command"]) + cmd
         env = csr5.envelope3(m3, frame)
         assert len(env) == 20  # 4-byte header + 16 LCG bytes
-        enc_kw = csr5.functor3_encrypt(m3, frame, bound)
-        assert len(enc_kw) == csr5.KEYWORD_LEN == 4  # functor 3 emits 4 bytes, not a blob
+        # The validated buffer-role swap: SUBJECT = the 20-byte envelope, SEED =
+        # the 4-byte bound keyword → the functor-3 payload is 20 bytes (the
+        # envelope length), NOT a 4-byte keyword.
+        payload = csr5.functor3_encrypt(m3, frame, bound)
+        assert len(payload) == csr5.ENVELOPE_LEN == 20
 
 
 @needs_xml
@@ -274,14 +277,33 @@ def test_waste_common_encipher_deterministic_and_keyword_sensitive() -> None:
 
 
 @needs_xml
-def test_encode_command_functor3_wire_is_prefix_plus_four() -> None:
+def test_encode_command_functor3_wire_is_header_plus_twenty() -> None:
     spec = csr5.parse_devices_xml(DEVICES_XML)
-    # The wire frame is prefix(CLEAR) || 4-byte enciphered keyword (B1-B3): the
-    # functor-3 envelope is the SEED only, not part of the wire. set_command
-    # prefix(3) + payload(3) = 6 clear bytes + 4 enciphered = 10 wire bytes.
+    # The wire frame is the 3-byte set_command header (85 00 00) || the 20-byte
+    # enciphered functor-3 payload = 23 bytes (hardware-validated 2026-06-01).
+    # The operand (10 07 7c) rides the envelope via frame[3] + <indexes> scatter,
+    # so it is NOT repeated on the wire.
     wire = csr5.encode_command(
-        spec, method_no=3, set_prefix="set_command", command_bytes=bytes([0x10, 0x07, 0x7C])
+        spec,
+        method_no=3,
+        set_prefix="set_command",
+        command_bytes=bytes([0x10, 0x07, 0x7C]),
+        device_keyword=bytes([0xE4, 0x7C, 0x5A, 0x00]),  # the real live keyword
     )
-    assert len(wire) == 10
-    assert wire[:6] == bytes(spec.prefixes["set_command"]) + bytes([0x10, 0x07, 0x7C])
-    assert wire == bytes.fromhex("85 00 00 10 07 7c 40 40 8f ec".replace(" ", ""))
+    assert len(wire) == 23  # noqa: PLR2004 — 3-byte header + 20-byte payload
+    assert wire[:3] == bytes([0x85, 0x00, 0x00])
+    # Byte-exact match to WICReset's real captured SELECTOR frame (23/23).
+    assert wire == bytes.fromhex("850000dbbb006759a1b01f842fd583044a3ac351d2b1ef")
+
+
+@needs_xml
+def test_encode_command_functor3_clear_matches_real_capture() -> None:
+    spec = csr5.parse_devices_xml(DEVICES_XML)
+    wire = csr5.encode_command(
+        spec,
+        method_no=3,
+        set_prefix="set_command",
+        command_bytes=bytes([0x0D, 0x00, 0x00]),  # the 'common' 5B00 clear operand
+        device_keyword=bytes([0xE4, 0x7C, 0x5A, 0x00]),
+    )
+    assert wire == bytes.fromhex("8500004dbb006759a1b01f842fd58319a83a627bafb1ef")
