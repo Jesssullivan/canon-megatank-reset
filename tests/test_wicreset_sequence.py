@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import pytest
 
+import canon_megatank.protocol.wicreset as wic
 from canon_megatank.ops import (
     WicResetFrames,
     load_wicreset_frames,
@@ -112,9 +113,7 @@ class FakeSessionDevice:
         self.calls: list[tuple[str, bytes]] = []
         self._reply = keyword_reply
 
-    def send_and_receive(
-        self, frame: bytes, *, timeout_ms: int = 5000, length: int = 64
-    ) -> bytes:
+    def send_and_receive(self, frame: bytes, *, timeout_ms: int = 5000, length: int = 64) -> bytes:
         self.calls.append(("recv", bytes(frame)))
         return self._reply
 
@@ -132,13 +131,9 @@ def test_load_frames_sources_literals_from_ssot() -> None:
     assert frames.get_keyword == bytes([0x82, 0x00, 0x00, 0x00, 0x00])
     assert frames.get_command == bytes([0x86, 0x00, 0x00, 0x00, 0x00])
     # set_command = prefix 85 00 00 00 00 + selector 10 07 7C
-    assert frames.set_command_select == bytes(
-        [0x85, 0x00, 0x00, 0x00, 0x00, 0x10, 0x07, 0x7C]
-    )
+    assert frames.set_command_select == bytes([0x85, 0x00, 0x00, 0x00, 0x00, 0x10, 0x07, 0x7C])
     # set_command = prefix + the 'common' operand 0D 00 00 (the 5B00 clear)
-    assert frames.set_command_reset == bytes(
-        [0x85, 0x00, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00]
-    )
+    assert frames.set_command_reset == bytes([0x85, 0x00, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00])
 
 
 def test_load_frames_common_is_the_g6000_clear_operand() -> None:
@@ -505,12 +500,36 @@ def test_four_byte_keyword_is_accepted() -> None:
     assert [kind for kind, _ in dev.calls] == ["recv", "recv", "send", "send", "recv"]
 
 
-def test_missing_encoder_refuses_cleanly() -> None:
-    """With no injected encoder and no Lane A module, execute refuses with a
-    ResetNotValidatedError rather than crashing on ImportError."""
+def test_missing_encoder_lazily_builds_lane_a_module() -> None:
+    """With no injected encoder, ops lazily imports Lane A's
+    canon_megatank.protocol.wicreset.build_encoder. Now that the module has
+    landed the dry-run resolves it and enciphers the preview WITHOUT touching the
+    device (the lazy-import seam works end to end). The clean-refusal contract for
+    a *missing* module is exercised separately in test_missing_module_refuses."""
     dev = FakeSessionDevice()
-    # dry-run also needs an encoder; with none and no Lane A module present it
-    # must refuse cleanly (the import is attempted lazily).
+    plan = reset_absorber_wicreset(
+        dev,
+        runtime_fingerprint=FP,
+        eeprom_dump_done=True,
+        load_doc=_validated_doc,
+    )
+    assert plan.executed is False
+    assert dev.calls == []  # dry-run drives nothing
+    # every frame was enciphered to non-empty wire bytes by the lazily-built encoder
+    assert len(plan.steps) == 5
+    assert all(s.wire and s.wire != s.plaintext for s in plan.steps)
+
+
+def test_missing_module_refuses_cleanly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """If Lane A's factory is NOT usable (module absent, or build_encoder raises),
+    ops refuses with a ResetNotValidatedError rather than crashing on the raw
+    exception. We simulate the unusable factory by making build_encoder raise."""
+
+    def _boom(*_args: object, **_kwargs: object) -> object:
+        raise ImportError("simulated: Lane A factory unavailable")
+
+    monkeypatch.setattr(wic, "build_encoder", _boom)
+    dev = FakeSessionDevice()
     with pytest.raises(ResetNotValidatedError):
         reset_absorber_wicreset(
             dev,
