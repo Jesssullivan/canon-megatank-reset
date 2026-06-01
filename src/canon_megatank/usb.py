@@ -218,6 +218,36 @@ class ClaimedDevice:
             raise UsbAccessError(f"bulk RECV transfer failed: {exc}") from exc
         return bytes(reply)
 
+    # ─── Send-primed RECV (the WICReset get_keyword equivalent) ─────────────
+
+    def send_and_receive(
+        self, frame: bytes, *, timeout_ms: int = 5000, length: int = 64
+    ) -> bytes:
+        """Issue a SEND-primed RECV: write a full ``frame`` to the bulk-OUT
+        endpoint, then read the reply from bulk-IN.
+
+        This is the read-with-payload sibling of :meth:`read_response`. Where
+        ``read_response`` writes a bare 3-byte ``[cmd][arg_hi][arg_lo]`` header,
+        this writes an arbitrary (typically *enciphered*) frame and then reads
+        the response — the shape WICReset's ``get_keyword`` uses: send the
+        functor-enciphered ``0x82 …`` prefix on bulk-OUT (EP 0x03, the
+        ``0x220038`` SEND equivalent), then read the keyword reply on bulk-IN
+        (EP 0x86, the ``0x22003c`` RECV equivalent).
+
+        Unlike :meth:`send_command` this does NOT mutate printer state by itself
+        — opening a session and reading the keyword are reads/handshakes. The
+        actual state-changing ``set_command`` still goes through
+        :meth:`send_command`, and the whole sequence stays behind the gate stack
+        in ``ops.reset_absorber_wicreset``. ``frame`` is the enciphered bytes
+        Lane A's encoder produced. Returns the raw reply bytes.
+        """
+        try:
+            self._dev.write(self.bulk_out_endpoint, frame, timeout=timeout_ms)
+            reply = self._dev.read(self.bulk_in_endpoint, length, timeout=timeout_ms)
+        except usb.core.USBError as exc:
+            raise UsbAccessError(f"bulk send-primed RECV transfer failed: {exc}") from exc
+        return bytes(reply)
+
     # ─── Write transfer (the 0x220038 SEND equivalent) — GATED ──────────────
 
     def send_command(self, frame: bytes, *, timeout_ms: int = 5000) -> int:

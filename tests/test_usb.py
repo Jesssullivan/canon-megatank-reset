@@ -240,3 +240,32 @@ def test_control_transfer_propagates_usb_error() -> None:
     dev = _Boom()
     with ClaimedDevice(dev) as cd, pytest.raises(UsbAccessError):  # type: ignore[arg-type]
         cd.control_transfer(0x40, 0x85, 0x0000, 0x0000, b"\x00")
+
+
+# ─── Send-primed RECV (the WICReset get_keyword / set_session transport) ──────
+
+
+def test_send_and_receive_writes_full_frame_then_reads_reply() -> None:
+    """send_and_receive writes the FULL (enciphered) frame to bulk-OUT and
+    returns the reply from bulk-IN — the get_keyword shape."""
+    reply = bytes([0xDE, 0xAD, 0xBE, 0xEF])
+    dev = FakeDevice(reply=reply)
+    # an enciphered set_session/get_keyword frame is longer than a 3-byte header
+    frame = bytes([0x00, 0x12, 0x01, 0x03, 0xE9, 0x3F, 0x0D, 0xA1])
+    with ClaimedDevice(dev) as cd:  # type: ignore[arg-type]
+        got = cd.send_and_receive(frame, timeout_ms=4321, length=16)
+
+    assert got == reply
+    # exactly one write of the full frame to OUT, one read from IN
+    assert dev.writes == [(0x03, frame, 4321)]
+    assert dev.reads == [(0x86, 16, 4321)]
+
+
+def test_send_and_receive_propagates_usb_error() -> None:
+    class _Boom(FakeDevice):
+        def write(self, endpoint: int, data: bytes, timeout: int) -> int:
+            raise usb.core.USBError("pipe error")
+
+    dev = _Boom()
+    with ClaimedDevice(dev) as cd, pytest.raises(UsbAccessError):  # type: ignore[arg-type]
+        cd.send_and_receive(b"\x81\x00\x00\x03")
