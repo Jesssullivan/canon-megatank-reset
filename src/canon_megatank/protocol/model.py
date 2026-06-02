@@ -1,12 +1,32 @@
-"""Executable reference model of the Canon MegaTank maintenance protocol (T3).
+"""Executable reference model of the Canon MegaTank **normal-mode** maintenance
+transport and frame grammar (the early T3 model).
 
 This is the **formal, offline, CI-checkable** model derived from two independent
 reverse-engineering oracles, so the property tests in
 ``tests/test_protocol_model.py`` can assert the protocol invariants WITHOUT
 hardware and WITHOUT spending the single-use WICReset key.
 
+> **Status — legacy normal-mode model.** The G6020 5B00 reset was since recovered
+> and **hardware-validated over a different path**: the **service-mode**
+> (``04a9:12fe``) vendor **control-transfer** transport with a keyed, functor-3
+> enciphered session (see ``protocol/wicreset.py``,
+> ``protocol/servicemode_transport.py``, and
+> ``docs/research/canon-service-mode-field-guide.md``). The plaintext
+> ``[00, 03, flags, 03, idx]`` **absorber-payload derivation modelled below was
+> FALSIFIED on hardware** — it ACKs but does **not** clear 5B00. That derivation
+> (``absorber_reset_payload`` / ``AbsorberResetSpec`` / ``derive_reset_frame``)
+> is retained ONLY as the legacy normal-mode grammar artifact and is firewalled
+> from real writes by the ``verified-captured`` gate in ``ops.py`` (it can only
+> ever produce a dry-run frame). Do not treat it as the reset of record.
+>
+> Everything else here remains **valid and corroborated**: the generic wire
+> grammar (round-trip, determinism, big-endian arg, length / range guards), the
+> idempotency + counter-block model, the write-budget and UUID safety gates, and
+> the no-SSOT-drift checks. The validated path reuses this same grammar
+> (``85 00 00 || payload``).
+
 Sources (see ``docs/spec/megatank-maintenance-protocol.md`` for the full
-derivation, and the cited research notes):
+derivation history, and the cited research notes):
 
 * **Canon Service Tool** — IOCTL primitive ``FUN_004302c0``::
 
@@ -23,14 +43,18 @@ derivation, and the cited research notes):
 * **Group-7 absorber payload** ``[00, 03, flags, 03, idx]``
   (``printers/canon-g6020/maintenance.yaml::supported.absorber_reset``).
 
-KNOWN vs PENDING (honesty boundary the model enforces):
+KNOWN vs FALSIFIED (honesty boundary the model enforces):
 
-* **KNOWN** (two-tool corroborated): transport, IOCTL codes, frame grammar,
-  endpoint binding, the absorber payload *shape*.
-* **PENDING** (resolved by T4 ground-truth capture, AFTER the waste-ink pads are
-  installed): the literal ``flags`` / ``idx`` for the G6020 absorber reset. The
-  model **parameterizes** these and asserts structure only; T4 fills the concrete
-  values and the captured wire bytes MUST equal ``derive_reset_frame(...)``.
+* **KNOWN / still valid** (two-tool corroborated, independent of which transport
+  actually clears 5B00): the normal-mode transport, IOCTL codes, frame grammar,
+  endpoint binding, and the absorber payload *shape*. These are asserted by the
+  property tests and remain true.
+* **FALSIFIED** (by T4-era hardware testing): the claim that the plaintext
+  ``[00, 03, flags, 03, idx]`` SEND frame *clears 5B00*. On hardware it ACKs but
+  does not clear. The real clear is the service-mode control-transfer + functor-3
+  cipher path. The model still **builds** that legacy payload deterministically —
+  the tests assert only its shape / determinism / invertibility, never the
+  (false) behavioral claim — and the runtime gate keeps it dry-run only.
 """
 
 from __future__ import annotations
@@ -142,15 +166,24 @@ def decode_frame(frame: bytes) -> tuple[int, int, bytes]:
     return cmd, arg, bytes(frame[HEADER_LEN:])
 
 
-# ─── Absorber reset payload + derivation ──────────────────────────────────────
+# ─── Absorber reset payload + derivation (LEGACY normal-mode; FALSIFIED) ───────
+#
+# The plaintext SEND frame built here was FALSIFIED on hardware: it ACKs but does
+# NOT clear 5B00. The validated reset is the service-mode control-transfer +
+# functor-3 cipher path (see protocol/wicreset.py). These builders are retained
+# only as the legacy normal-mode grammar artifact; the property tests assert their
+# byte shape / determinism / invertibility (all still true), never any clearing
+# behavior, and the ops.py ``verified-captured`` gate keeps them dry-run only.
 
 
 def absorber_reset_payload(flags: int, idx: int) -> bytes:
-    """Build the group-7 absorber payload ``[00, 03, flags, 03, idx]``.
+    """Build the legacy group-7 absorber payload ``[00, 03, flags, 03, idx]``.
 
     ``flags`` ∈ :data:`ABSORBER_FLAGS`; ``idx`` is the absorber selector (u8).
-    Shape is two-tool corroborated; the concrete ``flags`` / ``idx`` for the
-    G6020 are PENDING T4 ground-truth.
+    The byte *shape* is two-tool corroborated; the claim that this plaintext frame
+    clears 5B00 was **FALSIFIED** on hardware (it ACKs but does not clear — the
+    real clear is the service-mode functor-cipher path). Kept for the grammar
+    invariants only.
     """
     if flags not in ABSORBER_FLAGS:
         raise ProtocolError(f"flags must be one of {ABSORBER_FLAGS!r}, got {flags!r}")
@@ -160,9 +193,10 @@ def absorber_reset_payload(flags: int, idx: int) -> bytes:
 
 @dataclass(frozen=True, slots=True)
 class AbsorberResetSpec:
-    """Fully-specified absorber-reset operation. Pure description of *one* SEND
-    frame; the literal ``flags`` / ``idx`` are filled from T4 ground-truth before
-    any native write is enabled.
+    """Fully-specified **legacy normal-mode** absorber-reset operation. Pure
+    description of *one* SEND frame. NOTE: the plaintext frame this describes was
+    FALSIFIED on hardware (ACKs but does not clear 5B00); it survives only as the
+    legacy grammar artifact and is gated dry-run-only in ``ops.py``.
 
     ``cmd`` / ``arg`` are the maintenance command/argument carried in the 3-byte
     header (the operation identity also rides in the transformed payload — see
@@ -183,12 +217,15 @@ class AbsorberResetSpec:
 
 
 def derive_reset_frame(spec: AbsorberResetSpec) -> bytes:
-    """The **reset-derivation function**: ``spec -> exact SEND wire bytes``.
+    """The legacy normal-mode **frame-derivation function**: ``spec -> exact SEND
+    wire bytes``.
 
-    Pure and total over a valid :class:`AbsorberResetSpec`. This is the single
-    artifact T4 validates: the captured reset bytes MUST equal
-    ``derive_reset_frame(spec)`` for the recovered ``spec``. Determinism +
-    invertibility are asserted by the property tests.
+    Pure and total over a valid :class:`AbsorberResetSpec`; determinism +
+    invertibility are asserted by the property tests. The resulting plaintext
+    frame does **not** clear 5B00 on hardware (FALSIFIED — ACKs only); the
+    validated reset uses the service-mode functor-cipher path. This builder is
+    still imported by ``ops.py`` / ``main.py`` but is firewalled to dry-run output
+    by the ``verified-captured`` gate.
     """
     return encode_send(spec.cmd, spec.arg, absorber_reset_payload(spec.flags, spec.idx))
 
