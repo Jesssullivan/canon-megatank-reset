@@ -3,8 +3,8 @@ WICReset session device in ``ops.reset_absorber_wicreset``.
 
 ``protocol.servicemode_transport.ServiceModeTransport`` replicates, on libusb, the
 EXACT EP0 vendor control transfers usbprint.sys emits (see that module's docstring
-+ docs/research/usbprint-vendor-urb-mapping.md). This is the path that cleared 5B00
-on real hardware 2026-06-01. These tests pin:
++ docs/research/canon-service-mode-field-guide.md). This is the path that cleared
+5B00 on real hardware 2026-06-01. These tests pin:
 
   (a) the per-frame DIRECTION + setup fields match the validated reference
       (set_session 0x41/0x81 OUT, get_keyword 0xC1/0x82 IN, set_command 0x41/0x85

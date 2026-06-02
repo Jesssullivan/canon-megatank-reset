@@ -45,8 +45,7 @@ The author's own motivation was a stuck waste-ink counter, but he **"soon gave u
 on it."** The repo has **no service mode, no USB command framing, no waste-counter
 logic, and no G-series / MegaTank model code**. Its forks
 (`paulschreiber/pixma`, the operator's own `jesssullivan/pixma`) add only
-compile-portability fixes and a `Makefile` — **zero reset capability**. Fully
-cross-checked in `docs/research/sota-pixma-octo-lineage.md` §1.
+compile-portability fixes and a `Makefile` — **zero reset capability**.
 
 > **Licensing caveat (load-bearing):** `leecher1337/pixma` ships **no LICENSE /
 > COPYING file**. Absent an explicit grant it is "all rights reserved" by default,
@@ -61,7 +60,7 @@ but it is a **scanner** backend with **no waste-ink / maintenance surface**, and
 command path is **BULK**, a different channel from our service-mode **VENDOR
 control** transport (`0x41` OUT / `0xC1` IN). We already cite it correctly as
 Canon command-framing **lineage prior art** in
-`docs/research/canon-servicemode-transport-research.md`. We do **not** contribute
+`docs/research/canon-service-mode-field-guide.md`. We do **not** contribute
 maintenance code there — there is no home for it.
 
 ---
@@ -80,8 +79,7 @@ tools.
   documents the optional `third_party/pixma/` submodule layout for consumers who
   prefer vendoring.
 - **The cross-check is currently BLOCKED on firmware sourcing for the G6020**
-  (panel/internet-only delivery, CDN 404s — see
-  `docs/research/canon-tool-firmware-sourcing.md`). The dispatch-table cross-check
+  (panel/internet-only delivery, CDN 404s). The dispatch-table cross-check
   is therefore **secondary**: it was never on the critical path, and the native
   reset was validated *without* it (the oracle that actually delivered was the
   decrypted WICReset `APP.BIN` → `devices.xml` template plus the cracked functor-2
@@ -249,21 +247,16 @@ reproduce the result without a key, a cloud, or a Windows tool:
 | Want to verify… | Start here |
 |---|---|
 | the validated end-to-end reset | `docs/runbook/g6020-native-reset.md` |
-| the transport (usbprint VENDOR control 0x41/0xC1) | `docs/research/usbprint-vendor-urb-mapping.md` §7 |
-| the session/wire protocol | `docs/research/g6020-wire-codec-crack.md` |
-| the genuine `set_command` decode (and the negative result) | `docs/research/g6020-genuine-setcommand-decode.md` |
+| the transport, session/wire protocol, and `set_command` decode | `docs/research/canon-service-mode-field-guide.md` |
 | the cracked write cipher (functor-2 buffer-role swap, 23/23) | `docs/runbook/g6020-native-reset.md` §3, §8 |
-| cloud-independence (decompile proof) | `docs/research/wicreset-cloud-vs-local-template.md`, `docs/research/wicreset-drm-bypass.md` |
 | the formal protocol model | `docs/spec/megatank-maintenance-protocol.md` |
-| the pixma lineage assessment | `docs/research/sota-pixma-octo-lineage.md` |
-| the citation universe (≥2-source cross-checked) | `docs/research/sota-academic-eeprom-re.md`, `docs/research/sota-dynamic-instrumentation.md` |
 | the ethics / dual-use posture | `ETHICS/RIGHT-TO-REPAIR.md`, `SECURITY.md` |
 
 Provenance discipline: every load-bearing claim in the research docs is cross-checked
 across ≥2 sources and confidence-flagged; the ground-truth frames are asserted
 byte-exact (23/23) against WICReset's real captured wire; and the cloud-independence
-verdict is backed by an adversarial decompile (`docs/research/wicreset-drm-bypass.md`)
-plus a Frida DRM-bypass that captured the one genuine reset frame. The trifecta is
+verdict is backed by an adversarial decompile plus a Frida DRM-bypass that captured
+the one genuine reset frame. The trifecta is
 **host usbmon wire capture ↔ Frida IOCTL/DRM instrumentation in a Win11 VM ↔ Ghidra
 decompile** — reproducible from the runbooks under `docs/runbook/`.
 
@@ -273,9 +266,7 @@ decompile** — reproducible from the runbooks under `docs/runbook/`.
 
 Mirror the hiberpower-ntfs `references.bib` BibTeX convention (`@misc`/`@article`/
 `@inproceedings` + `url` + `note`; build via `rules_tectonic` + IEEEtran). All
-entries below are already ≥2-source verified in
-`docs/research/sota-academic-eeprom-re.md` and
-`docs/research/sota-dynamic-instrumentation.md`.
+entries below are already ≥2-source verified.
 
 - **Prior Canon RE:** Context IS, *Hacking Canon PIXMA Printers — Doomed Encryption*
   (2016); `leecher1337/pixma` (firmware-unpack lineage — the work we extend);

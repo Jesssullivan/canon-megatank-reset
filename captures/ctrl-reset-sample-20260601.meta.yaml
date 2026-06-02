@@ -10,7 +10,7 @@
 # the control-transfer analogue of the v5103-wine-launch negative-control: it
 # pins what the extractor sees, so the parser has a repo-local artifact to run
 # against. The offline-vs-cloud question is answered by the protocol in
-# docs/runbook/wicreset-capture-analysis-pipeline.md, not by this file.
+# docs/research/canon-service-mode-field-guide.md, not by this file.
 
 file: 'ctrl-reset-sample-20260601.pcapng.gz'
 source_pcap: 'mbp-13:~/canon-tool-staging/captures/ctrl-reset-20260601-003647.pcapng'

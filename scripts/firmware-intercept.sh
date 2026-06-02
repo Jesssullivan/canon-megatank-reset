@@ -5,7 +5,7 @@
 # downloads its own firmware over PLAIN HTTP from gdlp01.c-wss.com. With macOS
 # Internet Sharing (Wi-Fi -> Ethernet) the printer's HTTP GET crosses bridge100
 # in cleartext, where tshark sees it. We capture the URL, then curl the blob
-# directly (no install). See docs/runbook/firmware-panel-intercept.md.
+# directly (no install). See docs/research/canon-service-mode-field-guide.md.
 #
 # Unprivileged where possible; tshark needs BPF access (ChmodBPF / admin on macOS).
 # This script does NOT touch the printer — the operator drives the panel.
@@ -31,7 +31,6 @@ ERROR: interface '$IFACE' not found.
 Enable macOS Internet Sharing (System Settings > General > Sharing):
   share Wi-Fi -> to Ethernet. That brings up bridge100. Then plug the G6020
   into that Ethernet and confirm it pulls a 192.168.2.x lease.
-See docs/runbook/firmware-panel-intercept.md.
 EOF
   exit 1
 fi

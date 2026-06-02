@@ -4,7 +4,7 @@
 # WICReset (wic.support) is a known-good commercial absorber-counter resetter.
 # Capturing it over usbmon recovers the VERIFIED real reset bytes for our unit
 # (vs the v5103/G3010-mode hypothesis). See:
-#   docs/runbook/canon-tool-wicreset-capture.md
+#   docs/research/canon-service-mode-field-guide.md
 #
 # RUNS UNPRIVILEGED. tshark reads /dev/usbmonN via the `usbmon` group +
 # dumpcap's file-capabilities; the only privileged op is toggling ipp-usb,

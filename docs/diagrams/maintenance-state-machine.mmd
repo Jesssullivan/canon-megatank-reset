@@ -1,9 +1,8 @@
 stateDiagram-v2
 %% Canon G6020 service-mode MAINTENANCE PROTOCOL — state machine
 %% Source of truth: docs/runbook/g6020-native-reset.md §3,
-%%   docs/research/usbprint-vendor-urb-mapping.md §7,
-%%   docs/research/g6020-wire-codec-crack.md (register map 0x84/0x8a/0x8c/0x86),
-%%   docs/research/g6020-genuine-setcommand-decode.md (empty-0x86 by design).
+%%   docs/research/canon-service-mode-field-guide.md (register map 0x84/0x8a/0x8c/0x86,
+%%   empty-0x86 by design).
 %% Render: just diagrams  (mmdc -> maintenance-state-machine.svg)
 %%
 %% Every command is an EP0 usbprint VENDOR control transfer on iface 0:

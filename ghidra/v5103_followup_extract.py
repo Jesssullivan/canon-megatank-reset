@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lane A follow-up — close the two PENDING items from servicetool-v5103-static-re.md:
+"""Lane A follow-up — close the two PENDING items from the v5103 static RE:
 
   1. EXACT (cmd, arg) for the group-7 transmit. The Set handler calls
      FUN_0040ac60(this, 7, &payload); the transmit is the EncCommService vtable

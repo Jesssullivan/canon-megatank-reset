@@ -37,8 +37,7 @@ Citations (RECOVERED, exact devices.xml line numbers, 2026-06-01):
     home  : [10 07 7C] [0D 06 00]                                (line 43810)
   query.normal : [10 07 7C] [15]                                 (line 43814)
 
-RECOVERED CIPHER (decompiled from printerpotty.exe; see
-docs/research/wicreset-g6020-reset-template.md and the raw decompiles in
+RECOVERED CIPHER (decompiled from printerpotty.exe; see the raw decompiles in
 /tmp/pp-helpers.txt FUN_004e76c0 / FUN_004e72b0, /tmp/pp-corechain.txt
 FUN_004e8410):
 

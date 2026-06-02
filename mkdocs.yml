@@ -2,9 +2,9 @@
 # (Jesssullivan's user-site custom domain serves project pages under its apex; the
 #  jesssullivan.github.io URL redirects here.)
 # Build: `just docs-build` (renders diagrams, then `mkdocs build`); serve: `just docs-serve`.
-# Generator choice (MkDocs + Material, not the SvelteKit house stack) is recorded in
-# docs/PRODUCTIONIZATION.md: canon is a Python/uv/Nix repo with zero Node, and Material is
-# pip/uv-installable, reads nav from the docs/ tree, and renders mermaid client-side.
+# Generator choice (MkDocs + Material, not the SvelteKit house stack): canon is a
+# Python/uv/Nix repo with zero Node, and Material is pip/uv-installable, reads nav
+# from the docs/ tree, and renders mermaid client-side.
 site_name: canon-megatank-reset
 site_url: https://transscendsurvival.org/canon-megatank-reset/
 site_description: >-

@@ -56,7 +56,7 @@ from .types import (
 # ...). So the generic STATUS READ is cmd=0x86, arg=0x0000, reading a 20-byte
 # (0x14) status frame. This is the same wrapper that sends with cmd=0x85
 # (FUN_0040fa60) — matching our reset header. See
-# docs/research/servicetool-v5103-read-re.md.
+# docs/research/canon-service-mode-field-guide.md.
 #
 # CAVEAT: 0x86/0x0000 is the *generic status RECV* (a 20-byte frame the tool
 # polls). Whether that frame directly carries the absorber counter, or whether a
@@ -200,7 +200,7 @@ class WritableDevice(ReadableDevice, Protocol):
 
 
 # The generic SEND header for group-7 (operation identity rides in the payload,
-# not the cmd byte — see servicetool-v5103-static-re.md §5). arg=0x0000.
+# not the cmd byte). arg=0x0000.
 RESET_HEADER_CMD = 0x85
 RESET_HEADER_ARG = 0x0000
 
@@ -622,8 +622,7 @@ def replay_control_sequence(  # noqa: PLR0913, PLR0912 — gates + injection sea
 #
 # This is the bulk-transport (iface 4, OUT 0x03 / IN 0x86) sibling of the two
 # reset paths above, driving the ORDERED WICReset session frames recovered from
-# the decrypted APP.BIN model DB devices.xml (RECOVERED 2026-06-01; see
-# docs/research/wicreset-g6020-reset-derived.md and the
+# the decrypted APP.BIN model DB devices.xml (RECOVERED 2026-06-01; see the
 # `supported.absorber_reset.derived_template` block in maintenance.yaml). The
 # G6000-family (G6020 ∈ "G6000 series", method=3, support="query;waste:common")
 # clear is the ordered SEND sequence, every frame functor-3 enciphered:

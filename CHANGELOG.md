@@ -68,7 +68,7 @@ exists yet.
 
 ### Phase R0 → Phase R1 transition
 
-R0 is **complete**. The R1 cheap-spike runbook (`docs/runbook/canon-tool-r1-cheap-spike.md`) is ready to fire via `just canon-r1-capture v5103-g3010mode-attempt-1` whenever the user is physically at mbp-13 (or via X11 forwarding). The capture output will land at `~/canon-tool-staging/captures/v5103-g3010mode-attempt-1-<ts>.pcapng.gz` on mbp-13; rsync to neo and `just canon-analyze` for byte extraction.
+R0 is **complete**. The R1 cheap-spike runbook is ready to fire via `just canon-r1-capture v5103-g3010mode-attempt-1` whenever the user is physically at mbp-13 (or via X11 forwarding). The capture output will land at `~/canon-tool-staging/captures/v5103-g3010mode-attempt-1-<ts>.pcapng.gz` on mbp-13; rsync to neo and `just canon-analyze` for byte extraction.
 
 ### Decision log
 

@@ -3,7 +3,7 @@
 
 Pure offline analysis of ``/tmp/codec-dataset.json`` (40 fresh service-mode
 sessions; constant device state, per-session 3-byte keyword). NO device is
-touched by this script. See docs/research/g6020-wire-codec-crack.md.
+touched by this script. See docs/research/canon-service-mode-field-guide.md.
 
 Result:
   * 0x84 (VENDOR_GET 0x84) is FULLY cracked: an additive (XOR) stream cipher

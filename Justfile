@@ -58,7 +58,7 @@ diagrams fmt="svg":
       done
 
 # ─────────────────────────────────────────────
-# Docs site (MkDocs + Material → GitHub Pages). See mkdocs.yml + docs/PRODUCTIONIZATION.md.
+# Docs site (MkDocs + Material → GitHub Pages). See mkdocs.yml.
 # Mermaid renders client-side; the standalone .dot/.mmd sources are prerendered by
 # `just diagrams` so the diagrams page can embed the SVGs. mkdocs-material comes from the
 # `docs` extra; mmdc + dot come from the flake.
@@ -155,7 +155,7 @@ capture-sync:
 
 # Intercept the G6020 panel-initiated firmware download (Lane C / approach A).
 # Operator drives the printer panel; this captures the plain-HTTP blob URL.
-# See docs/runbook/firmware-panel-intercept.md. Override INTERCEPT_IFACE/PRINTER_IP.
+# Override INTERCEPT_IFACE/PRINTER_IP.
 firmware-intercept label="firmware-intercept":
     cd {{ root }} && scripts/firmware-intercept.sh {{ label }}
 
@@ -244,7 +244,7 @@ reset *flags='':
 # DRY-RUN by default (resolves the SSOT control_sequence, prints the transfers,
 # no USB). `just replay-control --execute` drives them behind every safety gate;
 # while the SSOT status is derived-unvalidated (the sequence is a placeholder)
-# it hard-stops. See docs/runbook/wicreset-capture-analysis-pipeline.md.
+# it hard-stops. See docs/research/canon-service-mode-field-guide.md.
 replay-control *flags='':
     cd {{ root }} && uv run --no-project python -m canon_megatank replay-control {{ flags }}
 

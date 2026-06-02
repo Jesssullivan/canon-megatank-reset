@@ -84,7 +84,7 @@ usb_interface_layout:
 
 supported:
   # The absorber-reset path. Static RE of Service Tool v5103 (see
-  # docs/research/servicetool-v5103-static-re.md) recovered the full payload:
+  # docs/research/canon-service-mode-field-guide.md) recovered the full payload:
   # the "EncCommService obfuscation" was a misread — the IOCTL primitive
   # FUN_004302c0 memcpy's the payload to the wire VERBATIM (passthrough), so the
   # exact bytes are statically derived, no capture/key needed. Status remains
@@ -141,7 +141,7 @@ supported:
     #                         0xA1/0x01 status). Whether this clears 5B00 offline
     #                         (locally replayable) or needs a cloud nonce is the
     #                         open question the offline-replay test answers — see
-    #                         docs/runbook/wicreset-capture-analysis-pipeline.md.
+    #                         docs/research/canon-service-mode-field-guide.md.
     transport: control
     service_mode_product_id: 0x12fe          # G6020 enumerates here once in service mode (vs 0x1865 normal)
     # PLACEHOLDER until a real WICReset capture is extracted with
@@ -164,9 +164,8 @@ supported:
     # (sha256 6031555f143080038431cf963706191a3108bd7c4fec03eeffeb2c8f60d86db3),
     # produced offline by scripts/appbin_decrypt.py (3DES-EDE3-CBC zero-key → ZIP
     # → devices.srs → ZIP → devices.xml). This is the literal G6000-family reset
-    # template the static-RE lane (docs/research/wicreset-g6020-reset-template.md)
-    # left as "runtime-only"; full join + sequence in
-    # docs/research/wicreset-g6020-reset-derived.md.
+    # template the static-RE lane left as "runtime-only"; full join + sequence in
+    # docs/research/canon-service-mode-field-guide.md.
     #
     # GATE: this block is EVIDENCE ONLY. It is `derived-not-yet-validated` and
     # does NOT promote absorber_reset.status (still `derived-unvalidated`). No op
@@ -346,7 +345,7 @@ supported:
       # ops.reset_absorber_wicreset still refuses --execute until either a real
       # validation run promotes the status, or the operator passes accept_derived
       # for the one-run live validation on the dedicated debug unit. See
-      # docs/runbook/g6020-live-validation.md.
+      # docs/runbook/g6020-native-reset.md.
       derived_sequence:
         validation: hardware-validated                # native libusb 5B00 clear, 2026-06-01
         encoder_ref: scripts/canon_sr5_cipher.py    # the tested reference encoder
@@ -522,7 +521,7 @@ win11_iso:
 
 # ─── Command protocol (recovered via R3 Ghidra static analysis, TIN-1697) ────
 # Source: ServiceTool_v5103.exe static trace. See
-# docs/research/canon-tool-ghidra-notes.md for the full derivation.
+# docs/research/canon-service-mode-field-guide.md for the full derivation.
 # Status of the absorber-reset opcode is `pending-capture`: the wire bytes are
 # obfuscated by the Service Tool's EncCommService layer, so the exact sequence
 # is recovered by R1/R2 dynamic capture (TIN-1694) + validated against the
@@ -541,7 +540,7 @@ command_protocol:
     #   FUN_0052ce40 -> 0x220038 SEND   FUN_0052cab0 -> 0x22003c RECV
     #   FUN_0052d110 -> 0x220034        FUN_0052d4f0 -> 0x220030
     # Two independent REs (Canon Service Tool + WICReset) agree on the transport.
-    # See docs/research/wicreset-static-re.md "T2 BREAKTHROUGH".
+    # See docs/research/canon-service-mode-field-guide.md "T2 BREAKTHROUGH".
     corroboration: 'two-tool (Service Tool + WICReset static RE)'
   wire_frame:
     layout: '[cmd:u8][arg_hi:u8][arg_lo:u8][payload...]'   # 3-byte big-endian header
@@ -549,15 +548,16 @@ command_protocol:
       send: 0x85       # CONFIRMED — v5103 FUN_0040fa60: FUN_0042b030(h,0x85,0,SEND,...)
       receive: 0x86    # CONFIRMED — v5103 FUN_0040f500 read poll: (h,0x86,0,RECV,buf,0x14,..)
     status_read_len: 0x14   # 20-byte status frame the RECV poll reads
-    note: 'Operation identity is carried in the data block, not the cmd byte. cmd 0x85/0x86 confirmed from two v5103 functions. See docs/research/servicetool-v5103-read-re.md.'
+    note: 'Operation identity is carried in the data block, not the cmd byte. cmd 0x85/0x86 confirmed from two v5103 functions. See docs/research/canon-service-mode-field-guide.md.'
   enccommservice:
     class: 'EncCommService'
     payload_transform: passthrough   # CORRECTED (was "obfuscation"): the IOCTL
     notes: |
       EncCommService is the TRANSPORT class, NOT a payload obfuscator. The IOCTL
       primitive FUN_004302c0 copies the payload to the wire VERBATIM (see
-      servicetool-v5103-static-re.md), so no per-command transform stands between
-      the [cmd][arg][payload] frame and usbscan. The TOOL_0006 license/anti-tamper
+      docs/research/canon-service-mode-field-guide.md), so no per-command transform
+      stands between the [cmd][arg][payload] frame and usbscan. The TOOL_0006
+      license/anti-tamper
       checks gate WHETHER a command runs (FUN_0040fb40), not WHAT bytes it sends.
       The transport object DAT_00494ee0 is an EncCommService instance
       (FUN_0046c330 -> ctor FUN_0042aa20). Replay = the derived frame verbatim.

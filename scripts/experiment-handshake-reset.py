@@ -2,7 +2,7 @@
 """EXPERIMENT — live test of Lane A's recovered reset handshake on the debug G6020.
 
 Sends the candidate session-open → preamble → payload sequence the Service Tool
-runs (per docs/research/servicetool-v5103-reset-handshake.md), then reads back.
+runs, then reads back.
 This is the live discriminator for "does the handshake make 5B00 clear?".
 
 ⚠ NOT production code. It deliberately sends frames with a few GUESSED bytes
