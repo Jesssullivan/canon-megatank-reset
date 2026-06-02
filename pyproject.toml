@@ -16,6 +16,12 @@ dev = [
   "ruff>=0.7.0",
   "mypy>=1.13.0",
 ]
+docs = [
+  # Pinned to the free MIT 9.6 line. Material for MkDocs 2.0 (Feb 2026) moved to a
+  # licensed model ("unlicensed — unsuitable for production use"); the 9.6.x line stays
+  # FOSS and carries every feature used here (mermaid superfence, palette, JSON-LD override).
+  "mkdocs-material>=9.5.0,<9.7",   # docs site (GitHub Pages); client-side mermaid via pymdownx
+]
 
 [project.scripts]
 canon-megatank = "canon_megatank.main:run"

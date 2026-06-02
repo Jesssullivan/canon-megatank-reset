@@ -1,0 +1,49 @@
+name: Deploy docs
+
+# Builds the MkDocs (Material) site and deploys to GitHub Pages via the native
+# Actions artifact path (no gh-pages branch). Reuses ci-templates setup-nix@v2 so the
+# flake devShell (uv, graphviz, mermaid-cli + chromium) renders diagrams identically to
+# local `just docs-build`. One manual step: repo Settings → Pages → Source: GitHub Actions.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'overrides/**'
+      - 'pyproject.toml'
+      - '.github/workflows/deploy-docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build (mkdocs + diagrams)
+    runs-on: ${{ fromJSON(vars.PRIMARY_LINUX_RUNNER_LABELS_JSON || '["ubuntu-latest"]') }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: tinyland-inc/ci-templates/.github/actions/setup-nix@v2
+      - run: nix develop --command just docs-build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: deploy (github-pages)
+    needs: build
+    runs-on: ${{ fromJSON(vars.PRIMARY_LINUX_RUNNER_LABELS_JSON || '["ubuntu-latest"]') }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

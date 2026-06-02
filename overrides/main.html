@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+<!--
+  AI / SEO structured data (schema.org JSON-LD). Mirrors the peer site's hand-emitted
+  WebSite / TechArticle / BreadcrumbList graph, adapted to MkDocs Material's template
+  context. Material already emits sitemap.xml (from site_url) + OG/meta description.
+-->
+{% block extrahead %}
+  {{ super() }}
+  <meta name="description" content="{% if page and page.meta and page.meta.description %}{{ page.meta.description }}{% else %}{{ config.site_description }}{% endif %}">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="{% if page and page.title %}{{ page.title }}{% else %}{{ config.site_name }}{% endif %}">
+  <meta property="og:description" content="{% if page and page.meta and page.meta.description %}{{ page.meta.description }}{% else %}{{ config.site_description }}{% endif %}">
+  <meta property="og:url" content="{{ page.canonical_url if page else config.site_url }}">
+  <meta property="og:site_name" content="{{ config.site_name }}">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="{% if page and page.title %}{{ page.title }}{% else %}{{ config.site_name }}{% endif %}">
+  <meta name="twitter:description" content="{% if page and page.meta and page.meta.description %}{{ page.meta.description }}{% else %}{{ config.site_description }}{% endif %}">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": {{ config.site_name | tojson }},
+    "url": {{ config.site_url | tojson }},
+    "description": {{ config.site_description | tojson }}
+  }
+  </script>
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareSourceCode",
+    "name": "canon-megatank-reset",
+    "codeRepository": {{ config.repo_url | tojson }},
+    "url": {{ config.site_url | tojson }},
+    "programmingLanguage": "Python",
+    "license": "https://spdx.org/licenses/Zlib.html",
+    "author": { "@type": "Person", "name": {{ config.site_author | tojson }} },
+    "about": "Native, key-free Canon G-series MegaTank 5B00 waste-ink counter reset and USB maintenance-protocol reverse engineering."
+  }
+  </script>
+
+  {% if page and page.canonical_url %}
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": {{ page.title | tojson }},
+    "description": {% if page.meta and page.meta.description %}{{ page.meta.description | tojson }}{% else %}{{ config.site_description | tojson }}{% endif %},
+    "url": {{ page.canonical_url | tojson }},
+    "author": { "@type": "Person", "name": {{ config.site_author | tojson }} },
+    "publisher": { "@type": "Person", "name": {{ config.site_author | tojson }} },
+    "isPartOf": { "@type": "WebSite", "name": {{ config.site_name | tojson }}, "url": {{ config.site_url | tojson }} },
+    "license": "https://creativecommons.org/licenses/by/4.0/"
+  }
+  </script>
+  {% endif %}
+
+  {% if page and page.ancestors %}
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": {{ config.site_name | tojson }}, "item": {{ config.site_url | tojson }} }
+      {%- for ancestor in page.ancestors | reverse -%}
+      ,{ "@type": "ListItem", "position": {{ loop.index + 1 }}, "name": {{ ancestor.title | tojson }} }
+      {%- endfor -%}
+      ,{ "@type": "ListItem", "position": {{ (page.ancestors | length) + 2 }}, "name": {{ page.title | tojson }}, "item": {{ page.canonical_url | tojson }} }
+    ]
+  }
+  </script>
+  {% endif %}
+{% endblock %}

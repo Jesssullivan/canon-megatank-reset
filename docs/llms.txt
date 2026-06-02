@@ -1,0 +1,28 @@
+# canon-megatank-reset
+
+> Native, key-free, cloud-free reset for the Canon G-series MegaTank "5B00 ink absorber
+> full" lock, built from a reverse-engineered USB maintenance protocol and validated on
+> real hardware (Canon G6020). Code is zlib-licensed; docs and the paper are CC-BY-4.0.
+> This is right-to-repair / interoperability research on owned hardware: install a fresh
+> waste-ink absorber kit before performing any reset.
+
+## Start here
+
+- [Service-mode field guide](https://transscendsurvival.org/canon-megatank-reset/research/canon-service-mode-field-guide/): model-agnostic entry point for Canon maintenance RE.
+- [Validated native reset runbook](https://transscendsurvival.org/canon-megatank-reset/runbook/g6020-native-reset/): the hardware-validated procedure.
+- [Protocol spec](https://transscendsurvival.org/canon-megatank-reset/spec/megatank-maintenance-protocol/): the maintenance protocol, formally modelled.
+
+## Key findings
+
+- Transport is **USB vendor control transfers** through the usbprint path (not bulk); reads come back on control-IN.
+- The reset is a four-step keyed session: `set_session` (plaintext) → `get_keyword` (live per-session value) → two enciphered `set_command` frames → commit via a clean power-button shutdown.
+- The write cipher is a functor-3 envelope wrapped by a functor-2 transform seeded by the bound keyword (validated 23/23 against ground truth).
+- The commercial tool's cloud is **licensing only** — a key-entitlement boolean plus a post-reset accounting report; it sources none of the device bytes. The per-model template is bundled and zero-key "encrypted," so an offline, key-free reset is computable.
+
+## Reference
+
+- [Blog post: clearing the 5B00 lock](https://transscendsurvival.org/canon-megatank-reset/blog/canon-5b00-native-reset/)
+- [Tooling + methodology (usbmon / Frida / Ghidra trifecta)](https://transscendsurvival.org/canon-megatank-reset/TOOLS/)
+- [Diagrams: lifecycle, exploit dataflow, DRM-gate control flow](https://transscendsurvival.org/canon-megatank-reset/diagrams/)
+- [ADR 0007: reverse-engineering methodology](https://transscendsurvival.org/canon-megatank-reset/adr/0007-canon-tool-reverse-engineering/)
+- Source: https://github.com/Jesssullivan/canon-megatank-reset

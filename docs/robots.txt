@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://transscendsurvival.org/canon-megatank-reset/sitemap.xml
