@@ -1,6 +1,7 @@
-"""printstack-canon — Linux-native maintenance ops for Canon G-series MegaTank.
+"""canon-megatank-reset — Linux-native maintenance ops for Canon G-series MegaTank.
 
-See `services/canon-tool/README.md` for scope + status, and
+See the repository `README.md` / `docs/README.md` for scope + status, the
+hardware-validated procedure in `docs/runbook/g6020-native-reset.md`, and
 `docs/adr/0007-canon-tool-reverse-engineering.md` for the methodology.
 """
 

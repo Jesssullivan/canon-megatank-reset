@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security / responsible disclosure
+    url: https://github.com/tinyland-inc/canon-megatank-reset/blob/main/SECURITY.md
+    about: Report a security or safety concern (EEPROM-write path, gate bypass) per SECURITY.md — do not open a public issue for an unpatched safety bypass.
+  - name: Right-to-repair & dual-use scope
+    url: https://github.com/tinyland-inc/canon-megatank-reset/blob/main/ETHICS/RIGHT-TO-REPAIR.md
+    about: Before requesting anything, confirm it fits the authorized-repair, interoperability scope. Out-of-scope (bricking, DoS, key resale) requests are declined.

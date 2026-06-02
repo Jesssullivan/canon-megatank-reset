@@ -913,14 +913,41 @@ metered black box.
 The work is reproducible from the open repository~\cite{canon-megatank-reset},
 which contains the native tool, the CANON-SR5 reference codec, the
 protocol specification, and the full RE notes that trace each claim from
-evidence to code. The on-hardware reset was validated at a tagged commit.
-To respect provenance and licensing we redistribute no Canon firmware, no
-vendor tool, and no decompiler project database; the RE notes cite the
-exact binary hashes and addresses so an independent investigator can
-reproduce the decompile. The 23/23 cipher validation is checked by a test
-suite that runs two independent implementations; the negative
-multi-sample boundary (\Cref{sec:cipher-valid}) is documented so future
-work can target the controlled-keyword capture campaign. The paper itself
+evidence to code. The repository is deliberately split into two halves: a
+\emph{shippable} native reset tool (libusb resetter, safety gates, and a
+fleet playbook) and a \emph{reproducibility-only} RE rig (the
+trace--decompile--correlate trifecta and its analysis utilities). Only the
+first is a product; the second exists so the result can be re-derived.
+
+\textbf{The trifecta rig.} The three evidence lanes
+(\Cref{sec:method})---host \texttt{usbmon} wire capture, Frida
+instrumentation inside the Win11 capture VM, and Ghidra decompilation---are
+enumerated reproducibly so an independent investigator can rebuild the
+workbench. The capture substrate is a throwaway Win11 guest under
+session-mode libvirt with real USB passthrough of the service-mode device;
+the three lanes are correlated by wall-clock timestamp and the
+deterministic 20-byte payload envelope.
+
+\textbf{Provenance and the gated tool.} To respect provenance and
+licensing we redistribute no Canon firmware, no vendor binary, and no
+decompiler project database: the proprietary tools (Canon Service Tool,
+WICReset/Printer Potty, Canon firmware) are RE oracles only, never a
+production dependency, and every binary and capture they touch is excluded
+from version control. The RE notes instead cite the exact binary hashes
+(e.g.\ the \texttt{printerpotty.exe} SHA-256) and the static addresses of
+the cipher and the three licensing gates, so the decompile is independently
+reproducible without shipping the binary. The shippable tool itself is
+gated: it defaults to a dry run, and its destructive \texttt{--execute}
+path is locked to a registered test unit and an unpromoted protocol status
+until a verified capture is in hand (\Cref{sec:safety}).
+
+\textbf{Validation artifacts.} The 23/23 cipher reproduction is checked by
+a test suite that runs two independent implementations against the genuine
+captured frame; the on-hardware reset was validated at a tagged commit. The
+deliberate negative result---that the 4th-byte keyword-padding rule cannot
+be generalized from a single sample (\Cref{sec:cipher-valid})---is
+documented so future work can target the controlled multi-sample
+capture campaign rather than overclaim from one frame. The paper itself
 builds reproducibly with Tectonic (\Cref{sec:artifact-build}).
 
 \subsection{Build}

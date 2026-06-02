@@ -114,6 +114,66 @@ software counter. We do not build DoS, malware, or bricking capability, and we h
 clear authorized-repair scope. Read and respect `ETHICS/RIGHT-TO-REPAIR.md` and
 `SECURITY.md`; contributions are expected to stay inside that posture.
 
+## Good first issues
+
+New here — human or agent? Start with these. Every one is **desk-doable**: no
+live printer, no purchased key, a bounded blast radius, and a clear green check
+(`just check` / `just test`). File any of them with the
+`good first issue` issue template, or just pick one up. Read `AGENTS.md`,
+`docs/README.md`, and the validated runbook (`docs/runbook/g6020-native-reset.md`)
+first to orient.
+
+1. **Resolve the `references.bib` TODOs (8 of them).** The paper's bibliography
+   tags entries whose URL / venue / DOI / author list still needs confirming with
+   a `TODO:` prefix in `note=`. Confirm the canonical source for each, fix the
+   field, and drop the `TODO:`.
+   - Files: `docs/paper/references.bib` (grep `TODO:`).
+   - Done when: every `TODO:` is resolved or has a one-line reason it can't be,
+     and `just paper` still builds clean (tectonic).
+   - Note: docs/paper changes are CC-BY-4.0 and live inside the `.gitleaks.toml`
+     allowlist, so cipher-hex examples there won't trip the scanner.
+
+2. **Add a second-model reset template (e.g. G7020 / G3060).** The SSOT today
+   covers only the lead G6020 (`G6000 series`). Extend
+   `printers/canon-g6020/maintenance.yaml`'s structure (or add a sibling SSOT) for
+   another MegaTank, sourced from the decrypted WICReset device DB — **status
+   `derived-unvalidated`**, no live write.
+   - Pointers: `docs/research/servicetool-version-model-tables.md` (the
+     model/version map — note the regional triplet G6020/G6080/G6050),
+     `docs/research/wicreset-g6020-reset-template.md` (how the G6020 template was
+     derived), the existing `derived_template` block in the SSOT.
+   - Done when: the new template parses, the fingerprint schema validates, and a
+     unit test asserts its derived frames against the device-DB source. **Do not**
+     relax the UUID isolation gate — a new model is a new locked unit.
+
+3. **Decode the counter read-back (`get_command` / register reads).** The
+   validated reset treats the empty `0x86` reply as expected and does not gate on
+   it, but a *readable* pre/post absorber counter would make validation
+   self-checking. Investigate the `VENDOR_GET` register-read shape and propose a
+   decode, evidence-first.
+   - Pointers: `docs/research/usbprint-vendor-urb-mapping.md` (the VENDOR_SET /
+     VENDOR_GET URB mapping), `docs/runbook/g6020-native-reset.md` §2 and §4 (the
+     transport + the empty-0x86 caveat — read this so you don't regress the
+     no-gate rule).
+   - Done when: a `docs/research/` note documents the read shape with cited
+     evidence and a test covers any decode you add. Keep it read-only; this is not
+     a new write path.
+
+4. **Diagram polish.** The Mermaid + Graphviz sources under `docs/diagrams/`
+   render via `just diagrams`. Tighten labels, fix any drift from the validated
+   runbook, or add a missing view (e.g. the safety-gate ladder as its own
+   diagram).
+   - Pointers: `docs/diagrams/README.md` (the "Accuracy notes" — every claim must
+     stay traceable to a finding), the per-file header comments (each cites its
+     source doc).
+   - Done when: `just diagrams` renders clean and every changed claim still
+     matches `docs/runbook/g6020-native-reset.md`. SVG/PNG are gitignored build
+     artifacts — commit only the `.mmd` / `.dot` sources.
+
+If you want something larger, the open work is mapped in
+`docs/PRODUCTIONIZATION.md` (the path from validated tool to fleet-deployable) and
+`docs/adr/0007` (RE methodology + the tranche T0–T6).
+
 ## License of contributions
 
 By contributing you agree your **code** is licensed under the zlib/libpng License

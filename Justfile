@@ -10,6 +10,10 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 root := justfile_directory()
 capture_host := env_var_or_default("CMR_CAPTURE_HOST", "mbp-13")
+# Pin the venv interpreter to the flake-provided python (pyproject requires >=3.12)
+# so `just setup`/`just test` are reproducible regardless of what floats to
+# `python3` on PATH. Override with CMR_PYTHON if needed.
+py := env_var_or_default("CMR_PYTHON", "3.12")
 
 _default:
     @just --list --unsorted
@@ -18,25 +22,34 @@ _default:
 # Development
 # ─────────────────────────────────────────────
 
+# `--clear` makes re-running idempotent (uv errors if .venv already exists).
 # Create the local venv + install the package (editable, with dev extras).
 setup:
-    cd {{ root }} && uv venv .venv && uv pip install -e ".[dev]"
+    cd {{ root }} && uv venv --clear --python {{ py }} .venv && uv pip install -e ".[dev]"
     @echo "Setup complete. Run 'just check && just test'."
 
 # ─────────────────────────────────────────────
-# Documentation diagrams (docs/diagrams/*.{mmd,dot} — source is SSOT, SVG is built)
+# Documentation build (paper + diagrams; sources are SSOT, artifacts are built)
 # ─────────────────────────────────────────────
 
+# tectonic (one-shot, vendored .cls/.bst/.sty — no TeX Live install needed).
+# Mirrors .github/workflows/build-paper.yml.draft. tectonic comes from the flake.
+# Build the IEEE paper PDF: docs/paper/canon-megatank-reset.tex → .pdf.
+paper:
+    cd {{ root }}/docs/paper && tectonic canon-megatank-reset.tex
+
+# Mermaid (.mmd) via mmdc; Graphviz (.dot) via `dot`. Both come from the flake
+# devShell (mermaid-cli + graphviz). See docs/diagrams/README.md.
 # Render every diagram source in docs/diagrams to SVG (pass `png` to also emit PNG).
-# Mermaid (.mmd) via mmdc (falls back to `npx @mermaid-js/mermaid-cli`); Graphviz
-# (.dot) via `dot` (nix profile install nixpkgs#graphviz). See docs/diagrams/README.md.
 diagrams fmt="svg":
     cd {{ root }}/docs/diagrams && \
       mmdc_cmd="$(command -v mmdc || echo 'npx --yes @mermaid-js/mermaid-cli')"; \
+      pp="$(mktemp)"; trap 'rm -f "$pp"' EXIT; \
+      printf '{"args":["--no-sandbox","--disable-gpu"]}' > "$pp"; \
       for f in *.mmd; do \
         [ -e "$f" ] || continue; \
-        echo "mermaid → ${f%.mmd}.svg"; $mmdc_cmd -i "$f" -o "${f%.mmd}.svg"; \
-        if [ "{{ fmt }}" = "png" ]; then echo "mermaid → ${f%.mmd}.png"; $mmdc_cmd -i "$f" -o "${f%.mmd}.png"; fi; \
+        echo "mermaid → ${f%.mmd}.svg"; $mmdc_cmd -p "$pp" -i "$f" -o "${f%.mmd}.svg"; \
+        if [ "{{ fmt }}" = "png" ]; then echo "mermaid → ${f%.mmd}.png"; $mmdc_cmd -p "$pp" -i "$f" -o "${f%.mmd}.png"; fi; \
       done; \
       for f in *.dot; do \
         [ -e "$f" ] || continue; \
@@ -82,8 +95,10 @@ secrets-scan:
 # Test
 # ─────────────────────────────────────────────
 
+# `--clear` keeps re-runs idempotent (uv refuses to reuse an existing .venv).
+# Full test suite in an isolated editable venv.
 test:
-    cd {{ root }} && uv venv .venv && uv pip install -e ".[dev]"
+    cd {{ root }} && uv venv --clear --python {{ py }} .venv && uv pip install -e ".[dev]"
     cd {{ root }} && .venv/bin/pytest tests/ -v
 
 # Property-test only the formal protocol model (T3) — fast, offline, no hardware.

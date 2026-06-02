@@ -1,0 +1,30 @@
+# Default owner for all paths
+* @jesssullivan
+
+# The tool + the safety gates (EEPROM-write path) — review carefully
+/src/canon_megatank/ @jesssullivan
+
+# SSOT: fingerprint, supported ops, write budget, recovered protocol, status gate
+/printers/canon-g6020/maintenance.yaml @jesssullivan
+
+# RE evidence + formal protocol model + ADRs (the traceability spine)
+/docs/research/ @jesssullivan
+/docs/spec/ @jesssullivan
+/docs/adr/ @jesssullivan
+
+# The academic paper (CC-BY-4.0)
+/docs/paper/ @jesssullivan
+
+# Safety / ethics / interop posture
+/SECURITY.md @jesssullivan
+/ETHICS/ @jesssullivan
+/INTEROP.md @jesssullivan
+
+# Entrypoint + dev shell (the DX contract)
+/Justfile @jesssullivan
+/flake.nix @jesssullivan
+/flake.lock @jesssullivan
+/.gitleaks.toml @jesssullivan
+
+# CI surface
+/.github/ @jesssullivan

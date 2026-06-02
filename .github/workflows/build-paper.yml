@@ -1,0 +1,77 @@
+# Build the research paper (docs/paper/canon-megatank-reset.tex) to PDF.
+#
+# Mirrors the tinyland plain-tectonic recipe (hiberpower-ntfs build-paper.yml):
+# paths-filtered on docs/paper/**, ubuntu-latest, setup-tectonic, build, upload
+# artifact, and — only on push to main — auto-commit the rebuilt PDF.
+#
+# Why plain tectonic and not bazel/RBE here:
+#   The paper is a single self-contained source (canon-megatank-reset.tex +
+#   the co-located references.bib and IEEEtran/cleveref/bytefield/balance
+#   style files). tectonic compiles it in a few seconds with zero system-TeX
+#   setup, so there is no build-graph to parallelise and nothing to cache that
+#   `setup-tectonic` doesn't already handle. Adopting bazel would mean a
+#   MODULE.bazel + MODULE.bazel.lock + a registry pin on rules_tectonic (which
+#   currently lives on an unmerged tinyland-inc/bazel-registry branch,
+#   `add-rules-tectonic-and-spear-resumes`) and GloriousFlywheel RBE routing —
+#   all to compile one .tex. That fails the "earns its keep" bar.
+#
+#   Migrate to rules_tectonic + RBE only when BOTH hold:
+#     1. rules_tectonic is published on the bazel-registry main branch, and
+#     2. the doc build grows a real graph — e.g. multiple papers, generated
+#        figures from docs/diagrams/*.{dot,mmd} compiled as build inputs, or a
+#        Ghidra/heavy-RE artifact that the paper consumes. At that point wire a
+#        //docs/paper:canon_megatank_reset tectonic_pdf target behind
+#        `just paper` and run it via the flywheel-bazel action (see
+#        ci-templates/.github/actions/flywheel-bazel). Until then, this is the
+#        right tool.
+name: Build LaTeX Paper
+
+on:
+  push:
+    paths:
+      - "docs/paper/**"
+  pull_request:
+    paths:
+      - "docs/paper/**"
+  workflow_dispatch:
+
+# Read-only by default; the auto-commit step on main needs write and is the
+# only thing that escalates (it runs git-auto-commit-action with the default
+# GITHUB_TOKEN). Fork PRs land with a read-only token, so the commit step is
+# guarded to push-to-main only and degrades safely elsewhere.
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-pdf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Tectonic
+        uses: wtfjoke/setup-tectonic@v3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build paper PDF
+        run: |
+          cd docs/paper
+          tectonic canon-megatank-reset.tex
+
+      - name: Upload PDF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: canon-megatank-reset
+          path: docs/paper/canon-megatank-reset.pdf
+
+      - name: Commit PDF (on push to main)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: rebuild canon-megatank-reset.pdf"
+          file_pattern: docs/paper/canon-megatank-reset.pdf

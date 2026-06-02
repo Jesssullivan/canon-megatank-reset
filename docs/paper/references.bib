@@ -1,8 +1,8 @@
 % references.bib — canon-megatank-reset paper
 % BibTeX, IEEEtran style. Double braces protect acronym/model casing.
-% Entries verified against the in-repo SOTA docs (docs/research/sota-*.md) are
-% left bare; entries whose bibliographic details could not be confirmed from a
-% primary source at authoring time are tagged with a "TODO:" prefix in note=.
+% Every entry is grounded in the in-repo SOTA docs (docs/research/sota-*.md)
+% and confirmed against a primary source (DOI / publisher / canonical repo).
+% No fabricated citations or results; tool entries cite the upstream project.
 
 % ─────────────────────────────────────────────────────────────────────────
 % Prior Canon reverse engineering
@@ -46,12 +46,13 @@
 }
 
 @misc{bch-canon-servicetool,
-  title  = {Developing an Open-Source Alternative to the {Canon} Service Tool},
+  title  = {Developing an Open-Source Alternative to {Canon} Service Tool},
   author = {{BCH Technologies}},
   year   = {2023},
-  url    = {https://www.bigmessowires.com/},
-  note   = {TODO: confirm canonical URL/venue. USB-control-sniffing ideation
-            for a Canon Service Tool alternative}
+  url    = {https://bchtechnologies.com/blogs/blog/developing-an-opensource-alternative-to-canon-service-tool},
+  note   = {Community write-up of USB-control-transfer sniffing toward an
+            open Canon Service Tool alternative; the capture-and-correlate
+            ideation this work executes for the G-series}
 }
 
 % ─────────────────────────────────────────────────────────────────────────
@@ -85,11 +86,14 @@
 }
 
 @misc{rxnaison-epson,
-  title  = {Epson-Waste-Reset},
+  title  = {Epson-Waste-Reset: a free, native, open-source {Epson} waste-ink
+            pad counter reset},
   author = {{RxNaison}},
-  year   = {2022},
+  year   = {2024},
   url    = {https://github.com/RxNaison/Epson-Waste-Reset},
-  note   = {TODO: confirm repo URL. Epson waste-counter reset utility}
+  note   = {Native C++ tool that builds IEEE-1284.4 (D4) EEPROM-write packets
+            per model over USB and zeroes the waste counter; the
+            native-key-free fleet-tool pattern this work mirrors for Canon}
 }
 
 @misc{atufi-reinkpy,
@@ -111,8 +115,11 @@
   volume  = {25},
   pages   = {117--137},
   year    = {2022},
-  note    = {Canonical capture-diff-interpret-reset writeup for consumable DRM;
-            TODO: confirm DOI/issue}
+  doi     = {10.31648/ts.7634},
+  url     = {https://czasopisma.uwm.edu.pl/index.php/ts/article/view/7634},
+  note    = {Peer-reviewed capture-diff-interpret-reset writeup for consumable
+            DRM: modifies the on-chip data to reset protection and validates by
+            observing the reported consumable level change}
 }
 
 @inproceedings{cui2013firmware,
@@ -122,8 +129,9 @@
   booktitle = {Proceedings of the Network and Distributed System Security
                Symposium (NDSS)},
   year      = {2013},
-  note      = {HP printer firmware modification; embedded-device firmware
-               attack surface}
+  doi       = {10.7916/D8P55NKB},
+  note      = {Canonical printer-firmware RE: HP LaserJet RFU format reversed
+               and persistently modified --- the upstream of printer-RE work}
 }
 
 @inproceedings{mueller2017sok,
@@ -131,19 +139,25 @@
   author    = {M{\"u}ller, Jens and Mladenov, Vladislav and Somorovsky, Juraj
                and Schwenk, J{\"o}rg},
   booktitle = {Proceedings of the IEEE Symposium on Security and Privacy (S\&P)},
+  pages     = {213--230},
   year      = {2017},
-  note      = {Systematization of printer attacks; PRET toolkit; PJL/PostScript
-               command surfaces}
+  doi       = {10.1109/SP.2017.47},
+  note      = {Systematization of printer attacks and the PRET toolkit;
+               formalizes NVRAM read/write at a named address --- the abstract
+               form of the service-mode write replayed here}
 }
 
 @inproceedings{mueller2018postscript,
-  title     = {{PostScript} Undead: Pwning the Web with a 35-Year-Old Language},
-  author    = {M{\"u}ller, Jens and Noss, Dominik and Mainka, Christian and
-               Mladenov, Vladislav and Schwenk, J{\"o}rg},
-  booktitle = {Proceedings of the International Symposium on Research in Attacks,
-               Intrusions and Defenses (RAID)},
+  title     = {{PostScript} Undead: Pwning the Web with a 35 Years Old Language},
+  author    = {M{\"u}ller, Jens and Mladenov, Vladislav and Felsch, Dennis and
+               Schwenk, J{\"o}rg},
+  booktitle = {Proceedings of the 21st International Symposium on Research in
+               Attacks, Intrusions, and Defenses (RAID)},
+  pages     = {603--622},
   year      = {2018},
-  note      = {TODO: confirm author list/venue year}
+  doi       = {10.1007/978-3-030-00470-5_28},
+  note      = {Language-level PostScript abuse incl.\ persistent state; supporting
+              context for durable printer-side state access}
 }
 
 @article{shwartz2018iot,
@@ -154,18 +168,23 @@
   volume  = {5},
   number  = {6},
   pages   = {4965--4976},
-  year    = {2018}
+  year    = {2018},
+  doi     = {10.1109/JIOT.2018.2875240},
+  note    = {General bus-sniff / dump / diff method spine for chip-and-firmware
+            RE, applied here to the service-mode counter hunt}
 }
 
 @article{bakhshi2024firmware,
   title   = {A Review of {IoT} Firmware Vulnerabilities and Auditing Techniques},
-  author  = {Bakhshi, Taimur and others},
+  author  = {Bakhshi, Taimur and Ghita, Bogdan and Kuzminykh, Ievgeniia},
   journal = {Sensors},
   volume  = {24},
   number  = {2},
   pages   = {708},
   year    = {2024},
-  note    = {TODO: confirm full author list}
+  doi     = {10.3390/s24020708},
+  note    = {Survey of firmware-RE / auditing tooling and the dump-diff
+            workflow; taxonomy backdrop for the device-side counter hunt}
 }
 
 % ─────────────────────────────────────────────────────────────────────────
@@ -274,21 +293,33 @@
   note      = {DRM / accessory-control chapter; economics of tying}
 }
 
-@article{anderson2003crypto,
-  title   = {Cryptography and Competition Policy: Issues with `Trusted Computing'},
-  author  = {Anderson, Ross},
-  journal = {Communications of the ACM},
-  year    = {2003},
-  note    = {TODO: confirm exact issue/pages; the accessory-control argument}
+@inproceedings{anderson2003crypto,
+  title     = {Cryptography and Competition Policy: Issues with `Trusted
+               Computing'},
+  author    = {Anderson, Ross},
+  booktitle = {Proceedings of the 22nd Annual ACM Symposium on Principles of
+               Distributed Computing (PODC)},
+  pages     = {3--10},
+  year      = {2003},
+  doi       = {10.1145/872035.872036},
+  note      = {Competition-policy analysis of consumable/accessory binding
+              via cryptography; the business-model rationale behind a gated
+              reset}
 }
 
-@misc{crs-dmca-1201,
-  title  = {Section 1201 of Title 17 and Repair of Software-Enabled Devices},
-  author = {{Yeh, Brian T. (Congressional Research Service)}},
-  year   = {2016},
-  number = {R44590},
-  note   = {DMCA \S1201 exemptions and software-enabled-device repair;
-            TODO: confirm report number/date}
+@techreport{crs-dmca-1201,
+  title       = {Repair, Modification, or Resale of Software-Enabled Consumer
+                 Electronic Devices: Copyright Law Issues},
+  author      = {Yeh, Brian T.},
+  institution = {Congressional Research Service},
+  type        = {CRS Report},
+  number      = {R44590},
+  month       = aug,
+  year        = {2016},
+  url         = {https://crsreports.congress.gov/product/details?id=R44590},
+  note        = {DMCA \S1201 anti-circumvention and the first-sale / repair
+                lens on resetting software maintenance locks (published
+                2016-08-11)}
 }
 
 @misc{octoinkjet-wicreset,
