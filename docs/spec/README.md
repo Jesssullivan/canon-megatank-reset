@@ -1,23 +1,20 @@
-# Protocol spec (formal model) — T3
+# Protocol spec (formal model)
 
-The **formal, provable, logically-modellable** specification of the Canon MegaTank
-maintenance protocol, derived from the RE oracles and validated against a real
-captured reset (T4).
+The formal specification of the Canon MegaTank service-mode maintenance protocol —
+the hardware-validated 5B00 reset, recovered from the RE oracles.
 
-Contents:
-
-- **[`megatank-maintenance-protocol.md`](megatank-maintenance-protocol.md)** — message
-  grammar (`[cmd:u8][arg_hi:u8][arg_lo:u8][payload…]`), transport binding (usbscan
-  IOCTL on Windows ↔ pyusb bulk on interface 4, OUT `0x03` / IN `0x86`), the read +
-  reset message sequences, the **reset-derivation function** as a state machine, and an
-  explicit **known-vs-pending** boundary with the T4 validation contract.
-- **Executable reference model** — `src/canon_megatank/protocol/model.py`, with
-  Hypothesis property tests in `tests/test_protocol_model.py` asserting the invariants:
-  frame round-trip + determinism, big-endian `arg`, absorber payload shape, reset
-  idempotency, UUID write-gating, write-budget monotonicity, and **no SSOT drift**.
+- **[`megatank-maintenance-protocol.md`](megatank-maintenance-protocol.md)** — the
+  validated protocol: the usbprint vendor **control-transfer** transport
+  (`0x41` SET / `0xC1` GET), the four-step keyed session
+  (`set_session` → `get_keyword` → `set_command` → clean power-button commit), the
+  functor-3 envelope + functor-2 role-swap write cipher (23/23 byte-exact), the
+  `APP.BIN` → `devices.xml` template provenance, and the cloud-is-licensing-only
+  finding. Implementation modules + tests are cross-referenced inline.
+- **Executable invariants** — `src/canon_megatank/protocol/model.py` (the legacy
+  normal-mode grammar model) + `tests/test_protocol_model.py` (Hypothesis) assert the
+  still-valid generic invariants: frame round-trip + determinism, big-endian `arg`,
+  reset idempotency, UUID write-gating, write-budget monotonicity, and no SSOT drift.
   Run with `just model`.
 
-Status: transport + grammar **two-tool corroborated** (Service Tool + WICReset); the
-literal G6020 reset bytes are **pending T4 ground-truth**. Until T4 validates the
-model, no native write path is enabled. See `docs/adr/0007` and the research notes
-under `docs/research/`.
+Status: **hardware-validated** on a real G6020. See `docs/adr/0007` and the
+model-agnostic [field guide](../research/canon-service-mode-field-guide.md).
