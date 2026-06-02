@@ -1,0 +1,50 @@
+flowchart LR
+%% Methodology TRIFECTA — the trace ⟷ decompile ⟷ correlate loop
+%% Source of truth: docs/research/wicreset-drm-bypass.md (Frida + usbmon + Ghidra),
+%%   docs/research/usbprint-vendor-urb-mapping.md (usbprint.sys decompile),
+%%   docs/research/g6020-genuine-setcommand-decode.md (ground-truth correlation),
+%%   memory/canon-5b00-wicreset-pivot.md (the validated narrative).
+%% Render: just diagrams  (mmdc -> methodology-trifecta.svg)
+%%
+%% Three independent evidence sources, cross-correlated by timestamp, converge on
+%% the validated native reset. No single lane is sufficient; each anchors the others.
+    subgraph USBMON["LANE 1 — usbmon  (host wire ground truth)"]
+        direction TB
+        u1["QEMU per-device pcap / dumpcap -i usbmon&lt;N&gt;<br/>over the 04a9:12fe passthrough"]
+        u2["Decodes URBs in Wireshark:<br/>VENDOR_SET 0x220038 / VENDOR_GET 0x22003c<br/>bRequest 0x81/0x82/0x85/0x86 + in/out payloads"]
+        u3["Proves: set_session 81 00 00 03 (plain),<br/>live keyword e4 7c 5a,<br/>set_command 85 00 00 || payload(20)"]
+        u1 --> u2 --> u3
+    end
+
+    subgraph FRIDA["LANE 2 — Frida  (Win11 VM, IOCTL + DRM instrumentation)"]
+        direction TB
+        f1["Hook kernel32!DeviceIoControl on printerpotty.exe<br/>→ plaintext in/out buffers + IOCTL code + ts"]
+        f2["Patch the 3 cloud-DRM gates JZ→JMP so WICReset<br/>emits its OWN genuine reset (gate-only cloud)"]
+        f3["Recovers the app command frame BEFORE the wire<br/>+ the live 3-byte keyword off get_keyword(0x82)"]
+        f1 --> f2 --> f3
+    end
+
+    subgraph GHIDRA["LANE 3 — Ghidra  (offline decompile)"]
+        direction TB
+        g1["usbprint.sys 10.0.26100.8328 →<br/>IOCTL→URB field map (VENDOR_SET = 0x41 OUT,<br/>whole frame as data stage; wIndex = iface)"]
+        g2["printerpotty.exe → clearCounters subtree is<br/>NET-FREE (BFS); QUERY_KEYS reply → 1 bool;<br/>cloud feeds NO payload/keyword/completion byte"]
+        g3["devices.xml (3DES-EDE3 zero-key, decrypted) →<br/>CANON-SR5 method=3 functor tables → write cipher"]
+        g1 --> g2 --> g3
+    end
+
+    CORR{{"CORRELATE<br/>by wall-clock timestamp<br/>+ the deterministic 20-byte envelope anchor"}}:::corr
+
+    u3 --> CORR
+    f3 --> CORR
+    g3 --> CORR
+
+    CORR --> validated["<b>VALIDATED NATIVE RESET</b><br/>write cipher reproduces WICReset's genuine<br/>frame 23/23 byte-exact · cloud-INDEPENDENT<br/>· cleared 5B00 on hardware (commit d2f3c81)"]:::win
+
+    %% the cross-anchoring that makes it a loop, not a pipeline
+    g3 -. "cipher predicts the wire bytes" .-> u3
+    u3 -. "wire confirms / corrects the cipher" .-> g3
+    f3 -. "live keyword + plaintext frame" .-> g3
+    g2 -. "tells Frida which gates to patch" .-> f2
+
+    classDef corr fill:#fff4d6,stroke:#b9770e,stroke-width:2px,color:#7d5109;
+    classDef win fill:#dff5e1,stroke:#1e8449,stroke-width:2px,color:#145a32;

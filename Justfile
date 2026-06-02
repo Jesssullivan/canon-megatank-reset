@@ -24,6 +24,27 @@ setup:
     @echo "Setup complete. Run 'just check && just test'."
 
 # ─────────────────────────────────────────────
+# Documentation diagrams (docs/diagrams/*.{mmd,dot} — source is SSOT, SVG is built)
+# ─────────────────────────────────────────────
+
+# Render every diagram source in docs/diagrams to SVG (pass `png` to also emit PNG).
+# Mermaid (.mmd) via mmdc (falls back to `npx @mermaid-js/mermaid-cli`); Graphviz
+# (.dot) via `dot` (nix profile install nixpkgs#graphviz). See docs/diagrams/README.md.
+diagrams fmt="svg":
+    cd {{ root }}/docs/diagrams && \
+      mmdc_cmd="$(command -v mmdc || echo 'npx --yes @mermaid-js/mermaid-cli')"; \
+      for f in *.mmd; do \
+        [ -e "$f" ] || continue; \
+        echo "mermaid → ${f%.mmd}.svg"; $mmdc_cmd -i "$f" -o "${f%.mmd}.svg"; \
+        if [ "{{ fmt }}" = "png" ]; then echo "mermaid → ${f%.mmd}.png"; $mmdc_cmd -i "$f" -o "${f%.mmd}.png"; fi; \
+      done; \
+      for f in *.dot; do \
+        [ -e "$f" ] || continue; \
+        echo "graphviz → ${f%.dot}.svg"; dot -Tsvg "$f" -o "${f%.dot}.svg"; \
+        if [ "{{ fmt }}" = "png" ]; then echo "graphviz → ${f%.dot}.png"; dot -Tpng "$f" -o "${f%.dot}.png"; fi; \
+      done
+
+# ─────────────────────────────────────────────
 # Validation (static gates — run by CI)
 # ─────────────────────────────────────────────
 

@@ -1,0 +1,71 @@
+// WICReset / PrinterPotty v5.95 — cloud-DRM BYPASS control-flow
+// Source of truth: docs/research/wicreset-drm-bypass.md (3 gates, exact VAs + bytes,
+//   adversarial critique adding the RESET_GUID gate), memory/canon-5b00-wicreset-pivot.md.
+// Render: just diagrams  (dot -Tsvg drm-bypass-controlflow.dot -o drm-bypass-controlflow.svg)
+//
+// printerpotty.exe (32-bit PE, base 0x400000, ASLR on; sha256 a199447db…564b3e8).
+// The orchestrator Core::ActionCanonDeviceClearCounters @0x0043fbc0 reaches the
+// net-free emit only through THREE cloud round-trips. Each is a JZ that aborts the
+// reset if the cloud round-trip != AL==1. Patching all three JZ→JMP (0x74→0xEB,
+// displacement preserved) forces the fall-through to clearCounters, which is
+// net-free — so the emitted frames are genuine and cloud-independent. The single-use
+// key is never spent (the cloud never validates).
+digraph drm_bypass {
+    rankdir = TB;
+    fontname = "Helvetica";
+    node  [fontname = "Helvetica", fontsize = 10, shape = box, style = "rounded,filled", fillcolor = "#eef3fb", color = "#33506e"];
+    edge  [fontname = "Helvetica", fontsize = 9, color = "#33506e"];
+    labelloc = "t";
+    label = "WICReset cloud-DRM bypass — Core::ActionCanonDeviceClearCounters @0x0043fbc0";
+
+    entry  [label = "Reset waste counter(s) clicked\n→ orchestrator FUN_0043fbc0", fillcolor = "#e7eefb"];
+
+    // ---- GATE 0: RESET_GUID ----
+    guid   [label = "0x440126  CALL RESET_GUID (FUN_0051d7d0)\nDO_MESSAGE msg 3/4 → 62.112.10.39:23457", fillcolor = "#f7e7d2"];
+    gate0  [label = "0x44012d  JZ 0x440178\n74 49  →  EB 49   (GATE 0)", shape = diamond, fillcolor = "#fdeedd", color = "#b9770e"];
+
+    // ---- local key-router (not a cloud gate) ----
+    router [label = "FUN_0047b780  local key-router\n(local format check; key value does NOT\ninfluence device bytes)"];
+
+    // ---- GATE 1 + GATE 2: QUERY_KEYS ----
+    qk     [label = "0x440543  CALL QUERY_KEYS (FUN_0051c700)\nDO_MESSAGE msg 7/8 → reply collapsed to ONE bool", fillcolor = "#f7e7d2"];
+    gate1  [label = "0x44054a  JZ 0x44055c\n74 10  →  EB 10   (GATE 1: transport-success AL)", shape = diamond, fillcolor = "#fdeedd", color = "#b9770e"];
+    gate2  [label = "0x440563  JZ 0x4405c8\n74 63  →  EB 63   (GATE 2: valid-bit local_2d9)", shape = diamond, fillcolor = "#fdeedd", color = "#b9770e"];
+
+    // ---- abort sinks ----
+    abort0 [label = "LAB_0044012f teardown → return\n(RESET_GUID cloud round-trip failed)", fillcolor = "#f7dddd", color = "#c0392b"];
+    abort1 [label = "0x44054f failure cleanup →\n0x440352 ABORT (common teardown)", fillcolor = "#f7dddd", color = "#c0392b"];
+    abort2 [label = "error path\n\"Could not reset…waste counters\"", fillcolor = "#f7dddd", color = "#c0392b"];
+
+    // ---- the net-free emit ----
+    clear  [label = "0x4405ce  CALL clearCounters (FUN_004ecae0)\nNET-FREE subtree (BFS=721, no sockets)\nbuilds frames from device keyword + APP.BIN template", fillcolor = "#d8efdd", color = "#1e8449"];
+    loop   [label = "0x440610  per-waste-counter loop\n→ functor_encryption_003 (FUN_004e8410)\n→ do_send_vendor → DeviceIoControl(0x220038)"];
+    emit   [label = "GENUINE set_session 81 00 00 03 →\nget_keyword → set_command 85 00 00 || payload(20)\n(captured ground truth; key UNSPENT)", fillcolor = "#dff5e1", color = "#1e8449"];
+
+    // ---- normal (unpatched) control flow ----
+    entry  -> guid;
+    guid   -> gate0;
+    gate0  -> abort0  [label = "AL != 1 (cloud stalls in VM)", color = "#c0392b", fontcolor = "#c0392b"];
+    gate0  -> router  [label = "AL == 1"];
+    router -> qk;
+    qk     -> gate1;
+    gate1  -> abort1  [label = "AL != 1", color = "#c0392b", fontcolor = "#c0392b"];
+    gate1  -> gate2   [label = "AL == 1"];
+    gate2  -> abort2  [label = "valid-bit != 1", color = "#c0392b", fontcolor = "#c0392b"];
+    gate2  -> clear   [label = "valid-bit == 1"];
+    clear  -> loop -> emit;
+
+    // ---- the PATCH: force all three JZ -> unconditional JMP (fall-through to emit) ----
+    edge_patch0 [shape = plaintext, style = "", label = "Frida Memory.patchCode: 0x74 → 0xEB\n(displacement byte unchanged → same target)", fontcolor = "#7d5ba6"];
+    edge_patch0 -> gate0 [style = dotted, color = "#7d5ba6", arrowhead = none];
+    edge_patch0 -> gate1 [style = dotted, color = "#7d5ba6", arrowhead = none];
+    edge_patch0 -> gate2 [style = dotted, color = "#7d5ba6", arrowhead = none];
+
+    gate0 -> router [label = "PATCHED EB 49\n(skip transport check)", style = bold, color = "#7d5ba6", fontcolor = "#7d5ba6", constraint = false];
+    gate1 -> gate2  [label = "PATCHED EB 10", style = bold, color = "#7d5ba6", fontcolor = "#7d5ba6", constraint = false];
+    gate2 -> clear  [label = "PATCHED EB 63\n→ straight to emit", style = bold, color = "#7d5ba6", fontcolor = "#7d5ba6", constraint = false];
+
+    // ---- side note: VM page-cap clamps (unrelated but co-loaded) ----
+    clamp [label = "Also loaded (VM passthrough page-cap fix):\nclamp IOCTL 0x220034 & 0x22003c outSize 5000 → 4096\n(GET_1284_ID + get_version reads succeed)", shape = note, style = "filled", fillcolor = "#f2f2f2", color = "#888888", fontcolor = "#555555"];
+    clamp -> loop [style = invis];
+}

@@ -1,0 +1,45 @@
+# DRAFT — paper build workflow (NOT enabled).
+# Rename to build-paper.yml to activate. Mirrors hiberpower-ntfs's plain-tectonic
+# recipe: paths-filtered on docs/paper/**, ubuntu-latest, setup-tectonic, build,
+# upload artifact, and (only on push to main) auto-commit the rebuilt PDF.
+#
+# Kept as .draft per task constraints: do not enable CI / no external triggers.
+name: Build LaTeX Paper
+
+on:
+  push:
+    paths:
+      - 'docs/paper/**'
+  pull_request:
+    paths:
+      - 'docs/paper/**'
+  workflow_dispatch:
+
+jobs:
+  build-pdf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Tectonic
+        uses: wtfjoke/setup-tectonic@v3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build paper PDF
+        run: |
+          cd docs/paper
+          tectonic canon-megatank-reset.tex
+
+      - name: Upload PDF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: canon-megatank-reset
+          path: docs/paper/canon-megatank-reset.pdf
+
+      - name: Commit PDF (on push to main)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: rebuild canon-megatank-reset.pdf"
+          file_pattern: docs/paper/canon-megatank-reset.pdf
