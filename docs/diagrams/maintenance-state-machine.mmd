@@ -13,7 +13,7 @@ stateDiagram-v2
     direction TB
     [*] --> NoSession: device in service mode (04a9:12fe)
 
-    NoSession --> Session: <b>set_session</b> 81 00 00 03\n(VENDOR_SET 0x41/0x81, PLAIN 4B)\ndevice length-validates → ACK
+    NoSession --> Session: <b>set_session</b> 81 00 00 03<br/>(VENDOR_SET 0x41/0x81, PLAIN 4B)<br/>device length-validates → ACK
 
     note right of NoSession
       set_session MUST be PLAIN (4 bytes).
@@ -24,24 +24,24 @@ stateDiagram-v2
     state Session {
         direction TB
         [*] --> Keyed
-        Keyed --> Keyed: <b>get_keyword</b> 82 00 00 →\nlive 3-byte keyword (fresh per session,\nstable within it) — seeds the write cipher
+        Keyed --> Keyed: <b>get_keyword</b> 82 00 00 →<br/>live 3-byte keyword (fresh per session,<br/>stable within it) — seeds the write cipher
 
-        Keyed --> Keyed: get_version 8a 00 00 →\nstable enciphered 20B id (e7 90 c1 84…)\nused to recognize "Canon G6000 series"
+        Keyed --> Keyed: get_version 8a 00 00 →<br/>stable enciphered 20B id (e7 90 c1 84…)<br/>used to recognize "Canon G6000 series"
 
-        Keyed --> Keyed: read 0x84 → constant 20B descriptor\n(XOR-stream codec CRACKED — NOT the counter)
+        Keyed --> Keyed: read 0x84 → constant 20B descriptor<br/>(XOR-stream codec CRACKED — NOT the counter)
 
-        Keyed --> Keyed: read 0x8c → 20B waste register\n(nonlinear key schedule — NOT yet cracked)
+        Keyed --> Keyed: read 0x8c → 20B waste register<br/>(nonlinear key schedule — NOT yet cracked)
 
-        Keyed --> Selected: <b>set_command SELECTOR</b>\n85 00 00 || payload(20)  (operand 10 07 7c)\nVENDOR_SET 0x41/0x85 — selects 'common' waste row
+        Keyed --> Selected: <b>set_command SELECTOR</b><br/>85 00 00 || payload(20)  (operand 10 07 7c)<br/>VENDOR_SET 0x41/0x85 — selects 'common' waste row
 
-        Selected --> Cleared: <b>set_command CLEAR</b>\n85 00 00 || payload(20)  (operand 0d 00 00)\n← THE 5B00 WRITE — zeroes the counter
+        Selected --> Cleared: <b>set_command CLEAR</b><br/>85 00 00 || payload(20)  (operand 0d 00 00)<br/>← THE 5B00 WRITE — zeroes the counter
 
-        Cleared --> Cleared: get_command 86 00 00 → EMPTY\nby design: NO finalize cmd.\nDo NOT block / retry / gate on 0x86.
+        Cleared --> Cleared: get_command 86 00 00 → EMPTY<br/>by design: NO finalize cmd.<br/>Do NOT block / retry / gate on 0x86.
     }
 
-    Session --> Committed: release USB handle →\nCLEAN POWER-BUTTON shutdown\n→ printhead parks → EEPROM flush
+    Session --> Committed: release USB handle →<br/>CLEAN POWER-BUTTON shutdown<br/>→ printhead parks → EEPROM flush
 
-    Committed --> [*]: reboots NORMAL (04a9:1865)\n5B00 cleared, state = idle
+    Committed --> [*]: reboots NORMAL (04a9:1865)<br/>5B00 cleared, state = idle
 
     note right of Committed
       Commit is the clean power-off, NOT any
