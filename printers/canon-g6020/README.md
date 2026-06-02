@@ -38,8 +38,9 @@ See `docs/PRODUCTIONIZATION.md` and ADR
 
 - USB device file: `/dev/bus/usb/001/022` (bus 001 device 022 at time of
   initial capture; will change across reboots, do not hardcode).
-- udev rule (planned): `/etc/udev/rules.d/50-canon-g6020.rules` matches
-  `idVendor=04a9` and grants `MODE=0660 GROUP=printstack`.
+- udev rule: the `canon_tool_reset` Ansible role installs a rule matching
+  `idVendor=04a9` (`1865` print + `12fe` service mode) that grants `MODE=0660`
+  group access, so the unprivileged service account opens the device without root.
 - The CUPS queue named `office` IS this printer — print jobs are unaffected
   by canon-tool work as long as `canon-reset@.service` is not
   holding the bulk endpoint when CUPS needs it. The systemd unit's

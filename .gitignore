@@ -57,7 +57,11 @@ firmware.bin
 canon-tool-staging/
 /tmp-captures/
 *.pcapng
+*.pcap
 !captures/*.pcapng.gz
+# Probe/capture run outputs are REPRODUCIBLE from the tool — never publish them
+# (raw dumps carry device identifiers; the curated findings live in docs/).
+/artifacts/
 
 # Rendered diagrams — sources (docs/diagrams/*.{mmd,dot}) are SSOT; SVG/PNG are
 # build artifacts from `just diagrams`.

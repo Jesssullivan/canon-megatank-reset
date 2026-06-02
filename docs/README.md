@@ -42,7 +42,6 @@ the concrete G6020 evidence below.
 | [`adr/`](adr/) | **Architecture decision records** — the RE approach, scope, and safety/ethics decisions. | `adr/0007-canon-tool-reverse-engineering.md` |
 | [`paper/`](paper/) | The **academic paper** (IEEEtran LaTeX, vendored classes) documenting the reproduction. CC-BY-4.0. | [`paper/README.md`](paper/README.md), `paper/canon-megatank-reset.tex` |
 | [`diagrams/`](diagrams/) | **Diagram sources** (`.mmd` / `.dot`) — state machine, exploit dataflow, methodology trifecta; SVG is built via `just diagrams`. | [`diagrams/README.md`](diagrams/README.md) |
-| [`legacy/`](legacy/) | Pre-extraction notes carried over from `printstack` (history context). | `legacy/service-README.md` |
 
 ## Map of `docs/research/` — the RE evidence (so it's findable, not buried)
 
