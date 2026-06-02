@@ -14,18 +14,18 @@ This project recovers the reset protocol from those tools (as **RE oracles**) an
 reimplements it as an **open, native Linux pyusb tool** — no Wine, no per-unit keys, no
 vendor cloud — behind strict safety gates, deployable across a fleet via Ansible.
 
-> **Status:** the native, key-free, cloud-free 5B00 reset is **recovered and
-> hardware-validated.** The usbprint vendor transport, the session protocol, and the
-> write cipher are all cracked (**23/23** byte-exact against a genuine captured frame),
-> and the native libusb clear **cleared 5B00 on a real G6020** — the printer rebooted
-> out of service mode to normal `04a9:1865` after a clean power-button shutdown. The
-> tool is **dry-run by default**; `--execute` is gated behind test-unit UUID isolation,
-> a mandatory pre-flight EEPROM dump, a persisted write budget, and a lockfile, and
-> while the SSOT status is `derived-unvalidated` it hard-stops unless you also pass
-> `--accept-derived` for a single run on the locked debug unit. **This is a debug/RE
-> tool for hardware you own, with waste pads installed** — service the absorber before
-> resetting. It is not a press-button-anywhere resetter. Full validated procedure:
-> `docs/runbook/g6020-native-reset.md`.
+> **Status — recovered and hardware-validated.** The usbprint vendor transport, the
+> session protocol, and the write cipher are cracked (**23/23** byte-exact against a
+> genuine captured frame), and the native libusb clear **cleared 5B00 on a real G6020**
+> — it rebooted out of service mode to normal `04a9:1865` after a clean power-button
+> shutdown.
+>
+> The tool is **dry-run by default**. `--execute` is gated on test-unit UUID isolation,
+> a pre-flight EEPROM dump, a persisted write budget, and a lockfile; while the SSOT
+> status is `derived-unvalidated` it additionally hard-stops unless you pass
+> `--accept-derived` for a single run on the locked debug unit. **Reset only hardware
+> you own, with waste pads installed** — service the absorber first. Full procedure:
+> [`docs/runbook/g6020-native-reset.md`](docs/runbook/g6020-native-reset.md).
 
 ## Fixing another Canon? Start with the field guide
 
@@ -41,11 +41,11 @@ method) into a reusable guide for *your* model, with links to the concrete evide
 
 | Path | What |
 |---|---|
-| `src/canon_megatank/` | the tool — safety gates + USB + pcap analysis (reset ops land in T5) |
+| `src/canon_megatank/` | the tool — safety gates, USB transport, the gated native reset, pcap analysis |
 | `printers/canon-g6020/maintenance.yaml` | SSOT — fingerprint, supported ops, write budget, recovered protocol |
 | `ghidra/` | model-agnostic Ghidra headless RE scripts (Canon Service Tool + WICReset) |
 | `scripts/` | usbmon capture harnesses (Wine + WICReset, headless) |
-| `docs/` | ADR, research (RE findings), runbooks, spec (formal protocol model), legacy notes |
+| `docs/` | ADR, research (RE findings), runbooks, spec (formal protocol model), the paper, the user guide |
 | `host/` | Ansible — capture/RE host setup (`canon_tool_dev`) + future fleet deploy |
 
 ## Quick start

@@ -1,15 +1,24 @@
-# Canon MegaTank maintenance protocol — formal model (T3)
+# Canon MegaTank maintenance protocol — formal model
 
-**Status:** transport + grammar **two-tool corroborated**; literal absorber-reset
-bytes **pending T4 ground-truth**. · **Model:** `src/canon_megatank/protocol/model.py`
-· **Proofs:** `tests/test_protocol_model.py` (Hypothesis). · **SSOT:**
+**Model:** `src/canon_megatank/protocol/model.py` · **Proofs:**
+`tests/test_protocol_model.py` (Hypothesis) · **SSOT:**
 `printers/canon-g6020/maintenance.yaml`.
 
-This is the clear, logically-modellable spec the tranche promised: every claim is
-either **(K)** known and corroborated by two independent reverse-engineering
-oracles, or **(P)** pending and explicitly parameterized in the model until T4
-fills it. The executable model encodes (K); the property tests assert the
-invariants; T4 validates the captured reset against `derive_reset_frame(...)`.
+> **Scope — read this first.** This is the early, two-tool-corroborated model of the
+> **normal-mode** `usbscan` transport and frame grammar. The G6020 reset was since
+> recovered and **hardware-validated over a different path**: the **service-mode**
+> (`04a9:12fe`) vendor **control-transfer** transport and a keyed, enciphered session.
+> That **supersedes the transport (§2) and the absorber-payload (§4) specifics here** —
+> the plaintext `[00,03,flags,03,idx]` payload modelled below was **falsified** on
+> hardware (it ACKs but does not clear 5B00). For the validated protocol see the
+> [field guide](../research/canon-service-mode-field-guide.md) and the
+> [reference runbook](../runbook/g6020-native-reset.md). This document is retained for
+> its still-valid invariants (round-trip, determinism, idempotency, the safety gates,
+> no SSOT drift) and as the methodology record. A rewrite to the validated control-
+> transfer + functor-cipher protocol is tracked future work.
+
+Each claim is marked **(K)** known/corroborated or **(P)** pending. The executable
+model encodes the invariants; the property tests assert them.
 
 ## 1. Oracles
 
@@ -126,7 +135,7 @@ Disagreement ⇒ the model is wrong; do not ship — refine §3–§4.
 * **UUID gate:** only the locked `test_unit` UUID permits a write.
 * **No SSOT drift:** model transport constants `==` `maintenance.yaml`.
 
-## 8. Relationship to the native tool (T5)
+## 8. Relationship to the native tool
 
 The native pyusb tool implements §3 directly on interface 4: a SEND is
 `ep_out.write(encode_send(cmd, arg, payload))`; a RECV writes
