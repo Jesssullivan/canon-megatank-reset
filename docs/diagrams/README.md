@@ -16,7 +16,37 @@ doc + line). The native reset they describe was **validated on real hardware**
 | `drm-bypass-controlflow.dot` | Graphviz | WICReset's reset orchestrator with the 3 cloud gates patched (JZ→JMP) → clearCounters → genuine emit. |
 
 Sources are the **single source of truth**; rendered SVG/PNG are build artifacts
-(gitignored — render locally with `just diagrams`).
+(gitignored — render locally with `just diagrams`). On the docs site the Mermaid
+diagrams below render **client-side** from these same sources; the Graphviz diagrams
+are prerendered to SVG at build time.
+
+## The diagrams
+
+### Lifecycle — RE to native reset (Mermaid)
+
+```mermaid
+--8<-- "lifecycle.mmd"
+```
+
+### Service-mode maintenance protocol — state machine (Mermaid)
+
+```mermaid
+--8<-- "maintenance-state-machine.mmd"
+```
+
+### Methodology trifecta — trace ⟷ decompile ⟷ correlate (Mermaid)
+
+```mermaid
+--8<-- "methodology-trifecta.mmd"
+```
+
+### Exploit / data-flow (Graphviz)
+
+![Canon G6020 5B00 exploit / data-flow](exploit-dataflow.svg)
+
+### Cloud-DRM bypass — control flow (Graphviz)
+
+![WICReset cloud-DRM bypass control flow](drm-bypass-controlflow.svg)
 
 ## Rendering
 

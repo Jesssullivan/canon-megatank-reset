@@ -68,9 +68,12 @@ diagrams fmt="svg":
 docs-serve:
     cd {{ root }} && uv run --extra docs mkdocs serve
 
-# Render diagrams, then build the static site into ./site (consumed by deploy-docs.yml).
+# Build the static site into ./site (consumed by deploy-docs.yml). Mermaid renders
+# CLIENT-SIDE in the browser (Material), so the deploy needs no headless-browser
+# renderer — only Graphviz (.dot → SVG via `dot`, which has no client-side option).
+# (Full local render of every diagram, incl. mermaid → SVG, is still `just diagrams`.)
 docs-build:
-    cd {{ root }} && just diagrams
+    cd {{ root }}/docs/diagrams && for f in *.dot; do [ -e "$f" ] && dot -Tsvg "$f" -o "${f%.dot}.svg"; done
     cd {{ root }} && uv run --extra docs mkdocs build
 
 # ─────────────────────────────────────────────
