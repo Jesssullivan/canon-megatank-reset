@@ -1,11 +1,20 @@
 # Productionization roadmap — canon-megatank-reset
 
+> **✅ SHIPPED (2026-06-02).** Lanes G1–G5 are complete: the repo is public and
+> released as `v0.1.0`, and its canonical home was **transferred to
+> `Jesssullivan/canon-megatank-reset`** (the TIN-213 Jesssullivan-canonical
+> topology). Shared-infra **authorities remain on `tinyland-inc`** (CI templates,
+> RBE/cache, package registry — see `tinyland.repo.json`). The "tinyland-inc is
+> canonical" framing in the historical sections below predates that transfer; the
+> realized canonical is Jesssullivan. The embedded `gh` command logs are kept as a
+> record of how the release was executed.
+
 **Status:** the native G6020 5B00 reset is **hardware-validated** (commit `d2f3c81`,
 2026-06-01; reference procedure `docs/runbook/g6020-native-reset.md`). This document
-is the roadmap from "validated on one debug unit" to a **state-of-the-art, open,
-native-Linux FOSS release** — the first open Canon G-series waste-counter resetter
-(`docs/research/sota-pixma-octo-lineage.md`: every other open Canon repo is a
-closed-binary mirror; open resetters exist only for Epson).
+is the roadmap that took the tool from "validated on one debug unit" to a
+**state-of-the-art, open, native-Linux FOSS release** — the first open Canon G-series
+waste-counter resetter (`docs/research/sota-pixma-octo-lineage.md`: every other open
+Canon repo is a closed-binary mirror; open resetters exist only for Epson).
 
 It covers six lanes:
 
@@ -38,7 +47,7 @@ reset end-to-end. The surrounding repos and their boundaries:
 
 | Repo | Role w.r.t. this work | Direction |
 |---|---|---|
-| **`tinyland-inc/canon-megatank-reset`** | **Home.** Native pyusb tool, safety gates, SSOT (`printers/canon-g6020/maintenance.yaml`), RE research, runbooks, the paper. The `origin` remote already points here. | — |
+| **`Jesssullivan/canon-megatank-reset`** | **Home (canonical, public).** Native pyusb tool, safety gates, SSOT (`printers/canon-g6020/maintenance.yaml`), RE research, runbooks, the paper. The `origin` remote points here (transferred from `tinyland-inc` 2026-06-02). | — |
 | `printstack` (tinyland) | The **boundary** the reset was carved out of. printstack keeps **only** the CUPS `office`/`epson` print queue + email-to-print for the G6020; it has **no** reset code. The split is intentional and final — reset never returns to printstack. | upstream-of-extraction (frozen) |
 | `jesssullivan/pixma` (← `leecher1337/pixma`) | **Interop / firmware cross-check.** The "doomed encryption" decrypt lineage (`pixma_decrypt`, `pixma_unpack`, `dec_sdata`) decodes MegaTank firmware, which carries the on-printer dispatch table. Our working fork adds a reproducible `Makefile` (branch `tin-1698-pixma-build-tooling`). We **reference** it (clone-alongside / future `third_party/pixma/` submodule), never vendor it. See `INTEROP.md`. | downstream consumer + upstream contributor |
 | `tinyland-inc/ci-templates` | **CI authority.** `setup-nix@v2` + the `secrets-scan@v2` composite + the `PRIMARY_LINUX_RUNNER_LABELS_JSON` runner routing. Already consumed correctly by `.github/workflows/ci.yml`. | authority (consumed) |
@@ -46,22 +55,24 @@ reset end-to-end. The surrounding repos and their boundaries:
 | `hiberpower-ntfs` | The **paper-build reference.** `docs/paper/` (IEEEtran + bytefield + cleveref + balance, vendored `.cls`/`.bst`/`.sty`) and `.github/workflows/build-paper.yml` (tectonic). We mirror both verbatim (§4). | convention source |
 | `rules_tectonic` (jesssullivan) | The Bazel-native paper-build path **if/when** this repo adopts bzlmod. Not adopted yet (no `MODULE.bazel`), so the tectonic-CLI lane is the lower-friction productionization. | optional future authority |
 
-### Mirror / publish topology (canonical ↔ Jesssullivan)
+### Publish topology (Jesssullivan-canonical)
 
-The house convention (README.md:106 in the org repos; `tinyland.repo.json` authorities
-block): **`tinyland-inc` is canonical** for CI / cache / registry; the personal
-`Jesssullivan` namespace holds working clones and PRs. For this repo the canonical home
-is **already** `tinyland-inc/canon-megatank-reset` (verified: `git remote -v`), so the
-flow is:
+**Realized topology (2026-06-02):** the canonical, public home is
+**`Jesssullivan/canon-megatank-reset`** (transferred from `tinyland-inc` to match the
+TIN-213 Jesssullivan-canonical convention). Shared-infra **authorities stay on
+`tinyland-inc`** (`tinyland.repo.json` `authorities` block): CI templates, the RBE /
+cache, and the package registry. The flow is:
 
 ```
-            authors / RE                       public mirror of record
-  Jesssullivan/canon-megatank-reset  ──PR──►  tinyland-inc/canon-megatank-reset
-        (personal working clone)              (canonical; public FOSS release)
-                                                        │
-                                                        ├─► pixma findings  ──PR──► leecher1337/pixma (via Jesssullivan/pixma)
-                                                        └─► GH issues mirror the Linear `Tinyland` team
+            authors / RE / release                shared infra (authorities)
+  Jesssullivan/canon-megatank-reset  ──uses──►  tinyland-inc/{ci-templates,
+   (canonical; public FOSS release)              GloriousFlywheel, bazel-registry}
+        │
+        ├─► pixma findings ──► Jesssullivan/pixma ──► leecher1337/pixma (operator-driven)
+        └─► GH issues mirror the Linear `Tinyland` team
 ```
+
+A `tinyland-inc/canon-megatank-reset` mirror is optional/future (not currently created).
 
 GH issues are a **mirror** of the Linear `Tinyland` team (the `foss`/`docs`/`security`
 labels exist in both). The Linear initiative narrative still points at the pre-split
@@ -395,13 +406,14 @@ Add a root manifest mirroring `ci-templates/tinyland.repo.json` and
 }
 ```
 
-### The mirror
+### Canonical home
 
-- **Canonical:** `tinyland-inc/canon-megatank-reset` (origin; public release).
-- **Working:** `Jesssullivan/canon-megatank-reset` (personal clone) → PRs into canonical.
+- **Canonical:** `Jesssullivan/canon-megatank-reset` (origin; public release).
+- **Authorities (shared infra):** `tinyland-inc/{ci-templates, GloriousFlywheel, bazel-registry}`.
+- **Mirror:** `tinyland-inc/canon-megatank-reset` is optional/future (not currently created).
 - **Issues:** GH issues mirror the Linear `Tinyland` team.
 - **Upstream:** pixma findings flow `Jesssullivan/pixma` → `leecher1337/pixma`
-  (TIN-cmr-07).
+  (TIN-cmr-07; operator-driven).
 
 ---
 

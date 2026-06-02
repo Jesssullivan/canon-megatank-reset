@@ -1,4 +1,4 @@
-# services/canon-tool/captures/
+# captures/
 
 Pcap fixture store for canon-tool. Every committed capture comes with
 a `.meta.yaml` sidecar that pins the printer firmware, Service Tool

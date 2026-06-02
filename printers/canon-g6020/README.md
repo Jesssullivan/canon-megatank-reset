@@ -2,7 +2,8 @@
 
 Canon PIXMA G6020 (MegaTank G-series) office MFP. Attached to `mbp-13` via USB
 `04a9:1865`. CUPS handles print + scan via the `office` queue; this directory
-exists for the **maintenance** surface served by `services/canon-tool/`.
+exists for the **maintenance** surface served by the native tool in
+`src/canon_megatank/`.
 
 ## Why this directory exists separately from CUPS
 
@@ -30,9 +31,8 @@ discovery is complete and locked.
 
 ## Refurb roadmap
 
-See the canon-tool sub-initiative section in
-`~/.claude/plans/printstack-the-goal-snazzy-pebble.md` and ADR
-`docs/adr/0006-canon-tool-reverse-engineering.md` (drafts in flight).
+See `docs/PRODUCTIONIZATION.md` and ADR
+`docs/adr/0007-canon-tool-reverse-engineering.md`.
 
 ## Operational notes
 
@@ -41,6 +41,6 @@ See the canon-tool sub-initiative section in
 - udev rule (planned): `/etc/udev/rules.d/50-canon-g6020.rules` matches
   `idVendor=04a9` and grants `MODE=0660 GROUP=printstack`.
 - The CUPS queue named `office` IS this printer — print jobs are unaffected
-  by canon-tool work as long as `printstack-canon-tool.service` is not
+  by canon-tool work as long as `canon-reset@.service` is not
   holding the bulk endpoint when CUPS needs it. The systemd unit's
   `ExecStartPost` releases the device on idle; `ExecStop` always closes.

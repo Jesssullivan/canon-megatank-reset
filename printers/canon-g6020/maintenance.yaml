@@ -4,7 +4,7 @@
 # evidence + safety gates per physical unit. The protocol fingerprint must
 # match the runtime printer fingerprint before any write op is permitted.
 #
-# Schema is enforced by services/canon-tool/src/printstack_canon/fingerprint.py.
+# Schema is enforced by src/canon_megatank/fingerprint.py.
 
 # ─── Identity ──────────────────────────────────────────────────────────────────
 
@@ -29,7 +29,7 @@ test_unit:
 #
 # Captured via `/usr/bin/ipptool -tv ipp://localhost:60001/ipp/print
 # get-printer-attributes.test` on 2026-05-28 against the test unit.
-# Any drift here aborts ops (services/canon-tool/src/printstack_canon/fingerprint.py).
+# Any drift here aborts ops (src/canon_megatank/fingerprint.py).
 
 protocol_fingerprint:
   printer_firmware_version: '1.070'
@@ -48,7 +48,7 @@ last_verified_at: '2026-05-28T22:15:46Z'      # ping suite captured via safe-pin
 # certainly travel over interface 4 (vendor-specific class 0xff sub 0x01
 # proto 0x01), NOT the USB-IF printer-class interface 1 that CUPS uses.
 #
-# See services/canon-tool/captures/ping-baseline-2026-05-28.yaml for the
+# See captures/ping-baseline-2026-05-28.yaml for the
 # full descriptor + IEEE-1284 device-id evidence.
 
 usb_interface_layout:
@@ -412,7 +412,7 @@ supported:
 
 write_budget:
   cap: 50                                     # max EEPROM writes against test_unit before manual review
-  consumed: 0                                 # incremented by services/canon-tool/src/printstack_canon/lockfile.py
+  consumed: 0                                 # incremented by src/canon_megatank/lockfile.py
   refill_policy: manual                       # must be manually edited + audited; no auto-reset
 
 # ─── Rollback evidence ────────────────────────────────────────────────────────

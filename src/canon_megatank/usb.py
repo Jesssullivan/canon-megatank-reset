@@ -24,7 +24,7 @@ best-guess default and a :func:`sweep_recv_control_setups` helper that yields th
 ranked candidates a probe can try. The SEND half (writing the enciphered prefix
 on bulk-OUT) is unchanged.
 
-This is the ONLY module in printstack-canon allowed to import `usb`. All
+This is the ONLY module in canon-megatank allowed to import `usb`. All
 other code calls into `ClaimedDevice` (see below).
 """
 

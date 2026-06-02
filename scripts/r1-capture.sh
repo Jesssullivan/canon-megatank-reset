@@ -160,10 +160,10 @@ echo
 echo "next steps:"
 echo "  1. rsync to neo:"
 echo "     rsync $(hostname):$PCAP_DEST \\"
-echo "       /Users/jess/git/printstack/.worktrees/canon-tool/services/canon-tool/captures/"
+echo "       ~/git/canon-megatank-reset/captures/"
 echo
 echo "  2. analyze:"
-echo "     just canon-analyze services/canon-tool/captures/$(basename "$PCAP_DEST")"
+echo "     just analyze captures/$(basename "$PCAP_DEST")"
 echo
 echo "  3. write a .meta.yaml sidecar — see example.meta.yaml for the schema"
 echo "════════════════════════════════════════════════════════════════"
