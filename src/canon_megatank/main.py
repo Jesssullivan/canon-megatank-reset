@@ -1,4 +1,4 @@
-"""systemd entrypoint for printstack-canon.
+"""systemd entrypoint for canon-megatank.
 
 For Phase R0/R1 (current), this is mostly a placeholder. Once protocol bytes
 are captured + locked in maintenance.yaml, this hosts the small HTTP API
@@ -45,7 +45,7 @@ def _on_term(_signum: int, _frame: FrameType | None) -> None:
 def _serve() -> int:
     """Run the long-lived service loop (the default, no-subcommand behavior)."""
     _configure_logging()
-    log = structlog.get_logger(service="printstack-canon", version=__version__)
+    log = structlog.get_logger(service="canon-megatank", version=__version__)
 
     # Verify maintenance.yaml is reachable + parseable BEFORE doing anything.
     try:
@@ -93,7 +93,7 @@ def cmd_read(argv: list[str]) -> int:
       still PENDING Lane A and none is passed via --cmd/--arg.
     """
     _configure_logging()
-    log = structlog.get_logger(service="printstack-canon", version=__version__, op="read")
+    log = structlog.get_logger(service="canon-megatank", version=__version__, op="read")
 
     parser = argparse.ArgumentParser(prog="canon-megatank read")
     parser.add_argument("--product-id", type=lambda s: int(s, 0), default=0x1865)
@@ -167,7 +167,7 @@ def cmd_reset(argv: list[str]) -> int:
     statically derived, not physically confirmed, pads still full) ``--execute``
     HARD-STOPS with ``ResetNotValidatedError``."""
     _configure_logging()
-    log = structlog.get_logger(service="printstack-canon", version=__version__, op="reset")
+    log = structlog.get_logger(service="canon-megatank", version=__version__, op="reset")
 
     parser = argparse.ArgumentParser(prog="canon-megatank reset")
     parser.add_argument("--product-id", type=lambda s: int(s, 0), default=0x1865)
@@ -248,7 +248,7 @@ def cmd_replay_control(argv: list[str]) -> int:
     sequence is a placeholder) ``--execute`` HARD-STOPS with
     ``ResetNotValidatedError``; an empty ``control_sequence`` also refuses."""
     _configure_logging()
-    log = structlog.get_logger(service="printstack-canon", version=__version__, op="replay-control")
+    log = structlog.get_logger(service="canon-megatank", version=__version__, op="replay-control")
 
     parser = argparse.ArgumentParser(prog="canon-megatank replay-control")
     parser.add_argument("--product-id", type=lambda s: int(s, 0), default=0x12FE)
@@ -338,7 +338,7 @@ def cmd_reset_native(argv: list[str]) -> int:  # noqa: PLR0915 — gated CLI: dr
     handle, then do a CLEAN POWER-BUTTON shutdown so the printhead parks and the
     cleared counter is flushed (an abrupt unplug does NOT commit)."""
     _configure_logging()
-    log = structlog.get_logger(service="printstack-canon", version=__version__, op="reset-native")
+    log = structlog.get_logger(service="canon-megatank", version=__version__, op="reset-native")
 
     parser = argparse.ArgumentParser(prog="canon-megatank reset-native")
     parser.add_argument(

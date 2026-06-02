@@ -1,6 +1,6 @@
-# services/canon-tool/scripts — agent contract
+# scripts/ — agent contract
 
-Read `services/canon-tool/AGENTS.md` first.
+Read the repo-root `AGENTS.md` first.
 
 Scripts here are **operator-driven tooling**, not service code. They
 run by hand (or via Justfile recipes), not under systemd. Different

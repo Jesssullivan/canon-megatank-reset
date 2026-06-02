@@ -3,7 +3,7 @@
 	"schema_version": 1,
 	"repo": {
 		"name": "canon-megatank-reset",
-		"github": "tinyland-inc/canon-megatank-reset",
+		"github": "Jesssullivan/canon-megatank-reset",
 		"description": "Native, key-free, cloud-free Canon MegaTank 5B00 waste-ink/ink-absorber counter reset and maintenance-protocol reverse engineering. Role: device-maintenance-tool / protocol-re-and-native-tool (mapped to the schema's org-utility primary_role; see taxonomy note).",
 		"linear": {
 			"initiative": "faa7f1b9-6d0f-4201-9531-8f8a15cd241b"

@@ -11,4 +11,4 @@ notes:
   - 'Print + scan path is CUPS / sane-airscan via ipp-usb (loopback :60001) — NOT this service.'
   - 'Maintenance ops are walk-up + physical-button gated. Tailnet users are refused.'
   - 'USB 04a9:1865 — udev rule required so the canon-tool service can open the bulk endpoint without root.'
-  - 'See docs/adr/0006-canon-tool-reverse-engineering.md for the RE methodology.'
+  - 'See docs/adr/0007-canon-tool-reverse-engineering.md for the RE methodology.'

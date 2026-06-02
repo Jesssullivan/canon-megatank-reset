@@ -47,12 +47,12 @@ rsync mbp-13:canon-tool-staging/extracted/ServiceTool_v5103/ServiceTool_v5103.ex
 # re-runnable: dump against the saved program (fast, no re-analysis)
 "$HEADLESS" "$WORK/project" canon-servicetool-v5103 \
   -process ServiceTool_v5103.exe -noanalysis \
-  -scriptPath services/canon-tool/ghidra \
+  -scriptPath ghidra \
   -postScript dump_canon.py "$WORK/out/v5103-ghidra-report.md"
 
 "$HEADLESS" "$WORK/project" canon-servicetool-v5103 \
   -process ServiceTool_v5103.exe -noanalysis \
-  -scriptPath services/canon-tool/ghidra \
+  -scriptPath ghidra \
   -postScript dump_strings.py "$WORK/out/v5103-strings.txt" "$WORK/out/v5103-string-hits.txt"
 ```
 

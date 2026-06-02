@@ -1,4 +1,4 @@
-"""Typed exceptions + dataclasses for printstack-canon."""
+"""Typed exceptions + dataclasses for canon-megatank."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 
 class CanonToolError(Exception):
-    """Base class for all printstack-canon errors."""
+    """Base class for all canon-megatank errors."""
 
 
 class FingerprintMismatchError(CanonToolError):

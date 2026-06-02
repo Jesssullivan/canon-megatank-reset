@@ -22,7 +22,7 @@ canon_tool_reset_venv_dir: '{{ canon_tool_reset_install_dir }}/.venv'
 # canon_tool_reset_source: git to clone instead (air-gapped fleets prefer rsync).
 canon_tool_reset_source: rsync            # rsync | git
 canon_tool_reset_local_repo: '{{ playbook_dir }}/..'   # controller-side repo root
-canon_tool_reset_git_repo: 'https://github.com/tinyland-inc/canon-megatank-reset'
+canon_tool_reset_git_repo: 'https://github.com/Jesssullivan/canon-megatank-reset'
 canon_tool_reset_git_version: main
 
 # uv builds the isolated venv (matches the dev contract: one env, uv-managed).
