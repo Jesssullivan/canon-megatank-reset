@@ -8,9 +8,9 @@
 
 ## Start here
 
-- [Service-mode field guide](https://jesssullivan.github.io/canon-megatank-reset/research/canon-service-mode-field-guide/): model-agnostic entry point for Canon maintenance RE.
-- [Validated native reset runbook](https://jesssullivan.github.io/canon-megatank-reset/runbook/g6020-native-reset/): the hardware-validated procedure.
-- [Protocol spec](https://jesssullivan.github.io/canon-megatank-reset/spec/megatank-maintenance-protocol/): the maintenance protocol, formally modelled.
+- [Service-mode field guide](https://transscendsurvival.org/canon-megatank-reset/research/canon-service-mode-field-guide/): model-agnostic entry point for Canon maintenance RE.
+- [Validated native reset runbook](https://transscendsurvival.org/canon-megatank-reset/runbook/g6020-native-reset/): the hardware-validated procedure.
+- [Protocol spec](https://transscendsurvival.org/canon-megatank-reset/spec/megatank-maintenance-protocol/): the maintenance protocol, formally modelled.
 
 ## Key findings
 
@@ -21,8 +21,8 @@
 
 ## Reference
 
-- [Blog post: clearing the 5B00 lock](https://jesssullivan.github.io/canon-megatank-reset/blog/canon-5b00-native-reset/)
-- [Tooling + methodology (usbmon / Frida / Ghidra trifecta)](https://jesssullivan.github.io/canon-megatank-reset/TOOLS/)
-- [Diagrams: lifecycle, exploit dataflow, DRM-gate control flow](https://jesssullivan.github.io/canon-megatank-reset/diagrams/)
-- [ADR 0007: reverse-engineering methodology](https://jesssullivan.github.io/canon-megatank-reset/adr/0007-canon-tool-reverse-engineering/)
+- [Blog post: clearing the 5B00 lock](https://transscendsurvival.org/canon-megatank-reset/blog/canon-5b00-native-reset/)
+- [Tooling + methodology (usbmon / Frida / Ghidra trifecta)](https://transscendsurvival.org/canon-megatank-reset/TOOLS/)
+- [Diagrams: lifecycle, exploit dataflow, DRM-gate control flow](https://transscendsurvival.org/canon-megatank-reset/diagrams/)
+- [ADR 0007: reverse-engineering methodology](https://transscendsurvival.org/canon-megatank-reset/adr/0007-canon-tool-reverse-engineering/)
 - Source: https://github.com/Jesssullivan/canon-megatank-reset

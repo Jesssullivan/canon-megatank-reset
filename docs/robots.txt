@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://jesssullivan.github.io/canon-megatank-reset/sitemap.xml
+Sitemap: https://transscendsurvival.org/canon-megatank-reset/sitemap.xml

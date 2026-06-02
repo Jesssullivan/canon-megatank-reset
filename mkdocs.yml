@@ -1,10 +1,12 @@
-# Docs site for canon-megatank-reset → https://jesssullivan.github.io/canon-megatank-reset/
+# Docs site for canon-megatank-reset → https://transscendsurvival.org/canon-megatank-reset/
+# (Jesssullivan's user-site custom domain serves project pages under its apex; the
+#  jesssullivan.github.io URL redirects here.)
 # Build: `just docs-build` (renders diagrams, then `mkdocs build`); serve: `just docs-serve`.
 # Generator choice (MkDocs + Material, not the SvelteKit house stack) is recorded in
 # docs/PRODUCTIONIZATION.md: canon is a Python/uv/Nix repo with zero Node, and Material is
 # pip/uv-installable, reads nav from the docs/ tree, and renders mermaid client-side.
 site_name: canon-megatank-reset
-site_url: https://jesssullivan.github.io/canon-megatank-reset/
+site_url: https://transscendsurvival.org/canon-megatank-reset/
 site_description: >-
   Native, key-free, cloud-free Canon G-series MegaTank "5B00 ink absorber full" reset and
   maintenance-protocol reverse engineering. Hardware-validated on the Canon G6020.
