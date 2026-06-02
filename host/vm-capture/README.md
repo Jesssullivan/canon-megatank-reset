@@ -2,13 +2,12 @@
 
 **Why:** our native tool's group-7 payload SEND was ACKed by the real G6020 but
 5B00 persisted — the reset needs the **session-open handshake** the Windows
-Service Tool runs first (open → init → 6-byte preamble → payload; see
-`docs/runbook/live-reset-write-2026-05-31.md`). Static RE (Lane A) is
-reconstructing it; this lane **captures it from the wire** — definitive
+Service Tool runs first (open → init → 6-byte preamble → payload). Static RE
+(Lane A) is reconstructing it; this lane **captures it from the wire** — definitive
 ground-truth we replay verbatim, and a cross-check against Lane A.
 
-**Why a VM (not Wine):** Wine cannot surface USB to the Windows tool (T1 finding,
-`docs/research/wicreset-wine-passthrough.md`). A real Win11 guest with
+**Why a VM (not Wine):** Wine cannot surface USB to the Windows tool (T1 finding).
+A real Win11 guest with
 **`<hostdev>` USB passthrough** drives the printer natively — exactly what Wine
 couldn't. Host-side `usbmon` still sees the bus traffic, so we capture without
 needing in-guest USBPcap (though that works too).
@@ -102,7 +101,7 @@ through the `[85 00 00][00 03 01 03 07]` payload, plus any `0x86` (IN) replies.
 1. Pull the pcap to neo: `just capture-sync` (or scp). Parse with `just analyze`.
 2. Encode the recovered sequence into the native tool's reset path (prepend the
    open/preamble frames before the payload SEND in `ops.reset_absorber`).
-3. **Cross-check vs Lane A** (`servicetool-v5103-reset-handshake.md`): agreement
+3. **Cross-check vs Lane A**: agreement
    ⇒ high confidence; divergence ⇒ Lane A reconstruction had a gap (the capture
    wins — it's ground truth).
 4. Re-run the live reset (`just reset --execute --accept-derived`) with the full

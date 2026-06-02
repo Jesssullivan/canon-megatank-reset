@@ -67,7 +67,7 @@ def _locked_runtime_fingerprint() -> PrinterFingerprint:
 def test_read_command_is_the_recovered_status_recv() -> None:
     """The status-read command was RECOVERED from v5103 (FUN_0040f500):
     cmd=0x86, arg=0x0000 (generic RECV). Not a guess — see
-    docs/research/servicetool-v5103-read-re.md."""
+    docs/research/canon-service-mode-field-guide.md."""
     assert ABSORBER_READ_CMD == 0x86
     assert ABSORBER_READ_ARG == 0x0000
 

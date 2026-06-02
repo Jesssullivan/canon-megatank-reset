@@ -2,7 +2,7 @@
 """
 appbin_oracle.py — LANE C validation oracle + container model for APP.BIN.
 
-Container (RECOVERED by static RE, see docs/research/wicreset-appbin-container.md):
+Container (RECOVERED by static RE, see docs/research/canon-service-mode-field-guide.md):
 
   printerpotty.exe  PE resource  DATA / "APP.BIN"
     - file offset 0x638ee8 (NOT 0x66c6e8 — that was the RVA), size 571596 (0x8b8cc)

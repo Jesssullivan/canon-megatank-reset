@@ -19,7 +19,7 @@ binary. The cipher MATH below is ported verbatim from the validated reference
 ``scripts/canon_sr5_cipher.py`` (20 passing tests).
 
 The algorithm (RECOVERED + hardware-validated 2026-06-01; native libusb 5B00
-clear, see docs/research/g6020-cipher-fix.md):
+clear, see docs/research/canon-service-mode-field-guide.md):
 
   functor 3 -> functor_encryption_003 (FUN_004e8410): build a 20-byte
                deterministic envelope ``[00 12 01 frame[3]]`` + 16 fixed

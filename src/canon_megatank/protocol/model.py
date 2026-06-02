@@ -8,17 +8,15 @@ hardware and WITHOUT spending the single-use WICReset key.
 Sources (see ``docs/spec/megatank-maintenance-protocol.md`` for the full
 derivation, and the cited research notes):
 
-* **Canon Service Tool** — IOCTL primitive ``FUN_004302c0``
-  (``docs/research/canon-tool-ghidra-notes.md``)::
+* **Canon Service Tool** — IOCTL primitive ``FUN_004302c0``::
 
       SEND  0x220038: [cmd][arg_hi][arg_lo][payload]   buffer len = 3 + len(payload)
       RECV  0x22003c: [cmd][arg_hi][arg_lo]            3-byte header, response read back
 
   ``arg`` is **big-endian** in the header.
 
-* **WICReset** — ``service.sendcmd`` / ``service.readcmd``
-  (``docs/research/wicreset-static-re.md``): the *same* usbscan transport
-  (``0x220038`` / ``0x22003c`` over a ``CreateFileW`` handle) under a
+* **WICReset** — ``service.sendcmd`` / ``service.readcmd``: the *same* usbscan
+  transport (``0x220038`` / ``0x22003c`` over a ``CreateFileW`` handle) under a
   template (``$INDEX`` / ``$VALUE``) builder. Two-tool corroboration of the
   transport is what lets us trust this model before T4.
 
@@ -68,7 +66,7 @@ BULK_IN_EP = 0x86
 # Absorber "Set" flags byte recovered from the Service Tool dialog handler
 # (FUN_0040b6c0): base 0x01, OR 0x80 when the dialog checkbox is set → 0x01/0x81.
 # This is the checkbox bit, independent of which absorber is selected (that is the
-# idx byte below). See docs/research/servicetool-v5103-static-re.md.
+# idx byte below). See docs/research/canon-service-mode-field-guide.md.
 ABSORBER_FLAGS = (0x01, 0x81)
 
 # Absorber index values, label-confirmed from the Service Tool's DAT_0048295c

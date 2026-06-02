@@ -7,7 +7,7 @@ Tool binary and dump structured anchors for the absorber-reset trace.
 **The Service Tool binary and the Ghidra project are NOT in git** (no
 binary redistribution — see ADR 0007). They live under the gitignored
 `.ghidra-work/` working dir. Only these scripts + the curated findings
-in `docs/research/canon-tool-ghidra-notes.md` are tracked.
+in `docs/research/canon-service-mode-field-guide.md` are tracked.
 
 ## Scripts
 
@@ -28,7 +28,7 @@ in `docs/research/canon-tool-ghidra-notes.md` are tracked.
 `find_msgmap.py` (ID→handler) → decompile handler → `FUN_0040ac60(group, payload)`
 → `vtable_probe.py`/`dump_named_vtable.py` resolve `EncCommService` →
 the usbscan IOCTL `FUN_004302c0`. Full writeup:
-`docs/research/canon-tool-ghidra-notes.md`.
+`docs/research/canon-service-mode-field-guide.md`.
 
 ## Reproduce (on neo, Ghidra 11.4.2 via nix + JDK 21)
 

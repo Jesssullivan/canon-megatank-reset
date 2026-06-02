@@ -24,8 +24,8 @@ model encodes the invariants; the property tests assert them.
 
 | Oracle | What it pins | Evidence |
 |---|---|---|
-| **Canon Service Tool** (v5103 static RE) | IOCTL primitive `FUN_004302c0`, the `[cmd][arg_hi][arg_lo][payload]` frame, group-7 absorber dialog payload | `docs/research/canon-tool-ghidra-notes.md` |
-| **WICReset** (`printerpotty.exe` static RE) | `USBPipe` IOCTL primitives (`0x220038`/`0x22003c`), `service.sendcmd`/`service.readcmd` template builders | `docs/research/wicreset-static-re.md` |
+| **Canon Service Tool** (v5103 static RE) | IOCTL primitive `FUN_004302c0`, the `[cmd][arg_hi][arg_lo][payload]` frame, group-7 absorber dialog payload | `docs/research/canon-service-mode-field-guide.md` |
+| **WICReset** (`printerpotty.exe` static RE) | `USBPipe` IOCTL primitives (`0x220038`/`0x22003c`), `service.sendcmd`/`service.readcmd` template builders | `docs/research/canon-service-mode-field-guide.md` |
 
 The two were reversed independently and **agree on the transport**. That
 agreement is the basis for trusting the model before a single key is spent.

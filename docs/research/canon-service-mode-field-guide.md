@@ -47,15 +47,14 @@ hardware **you own**:
 
 - **Physically service the absorber before you reset the counter.** Resetting
   lets the printer print again; if the absorber is genuinely full, printing risks
-  ink overflow. See [`../../SECURITY.md`](../../SECURITY.md) (Responsible use).
+  ink overflow. See [SECURITY.md](https://github.com/Jesssullivan/canon-megatank-reset/blob/main/SECURITY.md) (Responsible use).
 - **Why this is legitimate** — the right-to-repair posture, the dual-use line we
   hold, and the "no binary/firmware redistribution; oracles only" rule are in
-  [`../../ETHICS/RIGHT-TO-REPAIR.md`](../../ETHICS/RIGHT-TO-REPAIR.md) and
-  [`../../SECURITY.md`](../../SECURITY.md).
+  [RIGHT-TO-REPAIR.md](https://github.com/Jesssullivan/canon-megatank-reset/blob/main/ETHICS/RIGHT-TO-REPAIR.md) and
+  [SECURITY.md](https://github.com/Jesssullivan/canon-megatank-reset/blob/main/SECURITY.md).
 - The device-side reset is **cloud-independent**: by decompile, **zero** cloud
   bytes feed the reset payload, the keyword binding, or the completion test
-  (G6020-observed; [`wicreset-drm-bypass.md`](wicreset-drm-bypass.md),
-  [`g6020-reset-completion.md`](g6020-reset-completion.md) §1). The vendor cloud
+  (G6020-observed). The vendor cloud
   is a *licensing* gate, not part of the repair.
 
 The validated end-to-end procedure for the G6020 specifically is
@@ -71,9 +70,8 @@ Everything below is the *generalized* version of how that was reached.
 ### Entering service mode (the button-combo concept)
 
 Service mode is a **device-side firmware state entered by a front-panel button
-sequence**, not by any USB request — there is no "enter service mode" opcode
-([`canon-servicemode-transport-research.md`](canon-servicemode-transport-research.md)
-§2). The general G-series recipe is: power off, hold **Stop/Resume**, press+hold
+sequence**, not by any USB request — there is no "enter service mode" opcode.
+The general G-series recipe is: power off, hold **Stop/Resume**, press+hold
 **Power**, release Stop, then tap **Stop ~5–6×** while still holding Power, then
 release Power (G6020-observed; the exact tap count is model-specific — find your
 model's sequence in Canon community/service docs). On other PIXMA families the
@@ -81,9 +79,7 @@ combo differs but the *shape* is the same: a Power + Stop/Resume button dance.
 
 **You cannot drive this over USB. A human presses the buttons.** Until the panel
 sequence succeeds, every resetter is inert ("stays grey", "resets only if in
-service mode") — confirmed by community sources and by the tools' own behavior
-([`canon-servicemode-transport-research.md`](canon-servicemode-transport-research.md)
-§2).
+service mode") — confirmed by community sources and by the tools' own behavior.
 
 ### USB re-enumeration — normal PID vs service PID
 
@@ -95,9 +91,7 @@ The decisive, scriptable signal that you actually entered service mode is that t
 | Normal | `04a9:1865` | 6 interfaces incl. a still-image (usbscan) interface |
 | **Service** | **`04a9:12fe`** | a **single printer-class interface**, EP `0x01` OUT / `0x82` IN |
 
-(G6020-observed;
-[`canon-servicemode-transport-research.md`](canon-servicemode-transport-research.md)
-§2, [`../TOOLS.md`](../TOOLS.md) §1.) On a **different model** the VID stays
+(G6020-observed; [`../TOOLS.md`](../TOOLS.md) §1.) On a **different model** the VID stays
 `04a9` (Canon) but the **service PID will differ** — do not hardcode `12fe`.
 Discover it by enumerating before/after the button combo (`lsusb`; on Linux watch
 `dmesg`/`udevadm monitor`) and noting the *new* PID that appears with a single
@@ -113,9 +107,7 @@ descriptors.
   see [`../TOOLS.md`](../TOOLS.md).)
 - **Windows:** the device binds to the **`usbprint.sys`** printer-class minidriver
   in service mode (it binds `usbscan.sys` in normal mode). The proprietary tools
-  reach it via `CreateFile` + `DeviceIoControl` IOCTLs — see (c)
-  ([`servicetool-v5103-servicemode-reset-re.md`](servicetool-v5103-servicemode-reset-re.md),
-  [`servicemode-ioctl-0x16000c.md`](servicemode-ioctl-0x16000c.md)).
+  reach it via `CreateFile` + `DeviceIoControl` IOCTLs — see (c).
 
 ### How to *discover* the transport on an unknown model
 
@@ -123,9 +115,7 @@ descriptors.
    printer-class interface and note the bulk EP pair.
 2. Read **IEEE-1284 `GET_DEVICE_ID`** (class control-IN, `bmRequestType=0xA1`,
    `bRequest=0x00`) on EP0 — a valid `MFG:Canon;…;MDL:…` string confirms you have
-   the right interface bound (this is also how the tools "detect" service mode;
-   [`canon-servicemode-transport-research.md`](canon-servicemode-transport-research.md)
-   §1).
+   the right interface bound (this is also how the tools "detect" service mode).
 3. Then probe the vendor transport in (c). Tap the wire with **usbmon** while a
    known-good tool talks to a known-good device — the wire is the arbiter (g).
 
@@ -135,8 +125,7 @@ descriptors.
 
 **The maintenance command channel is USB EP0 VENDOR control transfers**, recovered
 authoritatively by static decompile of Windows `usbprint.sys` and confirmed on the
-live device. The authoritative mapping is
-[`usbprint-vendor-urb-mapping.md`](usbprint-vendor-urb-mapping.md):
+live device. The authoritative mapping is:
 
 | Direction | bmRequestType | bRequest | wValue | wIndex | Data stage |
 |---|---|---|---|---|---|
@@ -148,19 +137,16 @@ they emit `DeviceIoControl` IOCTLs to the minidriver, which builds the URB. The
 decompile of `usbprint.sys` shows IOCTL **`0x220038` (VENDOR_SET) → control-OUT
 `0x41`** and **`0x22003c` (VENDOR_GET) → control-IN `0xC1`**, with
 `bRequest = inBuf[0]`, `wValue = (inBuf[1]<<8)|inBuf[2]`, and **the whole input
-buffer placed in the data stage** ([`usbprint-vendor-urb-mapping.md`](usbprint-vendor-urb-mapping.md)
-§3–§7). (In service mode the runtime usbprint object may issue these via the
+buffer placed in the data stage**. (In service mode the runtime usbprint object may issue these via the
 DeviceType-`0x16` family IOCTL `0x16000c`; at Win32 none is a raw control transfer
-— all are buffered `DeviceIoControl` —
-[`servicemode-ioctl-0x16000c.md`](servicemode-ioctl-0x16000c.md).)
+— all are buffered `DeviceIoControl`.)
 
 **The critical gotcha — do not strip the prefix.** The first three bytes of the
 frame seed `bRequest`/`wValue` **and remain the first three bytes of the data
 stage**. usbprint sends the *entire* `InputBuffer` as the OUT data with
 `wLength = len(frame)`. Earlier native attempts STALLed (libusb "Pipe error")
 because they tried to split the frame — sending part as setup and a stripped
-remainder as data. **Send the frame verbatim** as the data stage
-([`usbprint-vendor-urb-mapping.md`](usbprint-vendor-urb-mapping.md) §8).
+remainder as data. **Send the frame verbatim** as the data stage.
 
 **The page-cap / clamp gotcha.** `usbprint.sys` (Win11 26100.8328) caps a control
 OUT/IN buffer at **one page (4096 bytes)**; a tool asking for a larger
@@ -170,12 +156,10 @@ by clamping `nOutBufferSize` 5000→4096 with a Frida hook
 large read errors, **clamp your request to ≤ 4096** (or read in page-sized chunks).
 
 > **Historical note for cross-readers.** An earlier research lane concluded the
-> SEND was a **bulk-OUT on EP `0x01`** with the reply over control-IN
-> ([`canon-servicemode-transport-research.md`](canon-servicemode-transport-research.md)
-> §1, written before the `usbprint.sys` decompile). The later, authoritative
+> SEND was a **bulk-OUT on EP `0x01`** with the reply over control-IN, written
+> before the `usbprint.sys` decompile. The later, authoritative
 > decompile shows the SET is the vendor **control-OUT `0x41`** above, and the live
-> reset log used `0x41` SET / `0xC1` GET successfully
-> ([`g6020-wire-codec-crack.md`](g6020-wire-codec-crack.md) §1/§5). On an unknown
+> reset log used `0x41` SET / `0xC1` GET successfully. On an unknown
 > model, **let usbmon settle bulk-vs-control** rather than assuming either — see (g).
 
 ---
@@ -192,10 +176,7 @@ set_command   SET 0x85 ...                ── the actual maintenance command 
 get_command   GET 0x86          (read)    ── poll for the status/completion reply
 ```
 
-What each does (G6020-observed;
-[`g6020-genuine-setcommand-decode.md`](g6020-genuine-setcommand-decode.md) §0,
-[`g6020-wire-codec-crack.md`](g6020-wire-codec-crack.md) §5,
-[`servicetool-v5103-reset-handshake.md`](servicetool-v5103-reset-handshake.md)):
+What each does (G6020-observed):
 
 - **`set_session` (`0x81`)** — plain, no keyword yet. Live frame observed:
   `81 00 00 03` (ACK'd `OK(4)`). A genuine WICReset frame also carried a 4-byte
@@ -210,10 +191,7 @@ What each does (G6020-observed;
 
 **Reads are SEND-primed, not free-running.** A read is "prime then read": SEND a
 `0x82`/`0x86`/`0x85`-query frame, *then* read the reply. A cold bare RECV with
-nothing armed **times out** (errno 110) — there is no unsolicited status stream
-([`servicetool-v5103-read-re.md`](servicetool-v5103-read-re.md),
-[`canon-servicemode-transport-research.md`](canon-servicemode-transport-research.md)
-§3).
+nothing armed **times out** (errno 110) — there is no unsolicited status stream.
 
 **How to recognize a session/keyword handshake on a new model.** Watch the wire
 (g) while a known-good tool resets a known-good unit and look for: (1) an early
@@ -234,8 +212,7 @@ length is whatever `OutputBufferLength` you ask for (mind the 4096 cap, (c)).
 **The empty-completion-read nuance (the `0x86` example).** On the G6020 the genuine
 completion path polls **`get_command 0x86`** for up to **600,000 ms (10 min)**,
 waiting only on the device's own reply **byte-count** — it exits on the first
-**non-empty** length-prefixed reply, or the deadline
-([`g6020-reset-completion.md`](g6020-reset-completion.md) §2). In the live run the
+**non-empty** length-prefixed reply, or the deadline. In the live run the
 `0x85` writes **ACK'd (`ret=1` / `OK(8)`)** but **`0x86` kept returning empty**
 (`bytesRet=0`), so "Processing…" hung. This exposes a crucial distinction:
 
@@ -244,13 +221,11 @@ waiting only on the device's own reply **byte-count** — it exits on the first
 - **"Committed"** — the value is persisted to the absorber EEPROM. On the G6020 the
   in-session write was accepted but **never produced the non-empty `0x86` status
   reply** the genuine path treats as "completed", i.e. the commit happens elsewhere
-  (see (f) — the power-button shutdown)
-  ([`g6020-reset-completion.md`](g6020-reset-completion.md) §2, adversarial §).
+  (see (f) — the power-button shutdown).
 
 > The adversarial review is honest that "accepted-but-uncommitted" vs
 > "silently-rejected/incomplete sequence" is **not yet distinguishable** from the
-> single trace in hand ([`g6020-reset-completion.md`](g6020-reset-completion.md),
-> "Strongest counter-argument" §). Either way the cause is **local** (framing /
+> single trace in hand. Either way the cause is **local** (framing /
 > sequence / commit), not the cloud. Treat an empty completion read as
 > *inconclusive*, and confirm the actual outcome with a **post-power-cycle counter
 > read**, not the in-session reply.
@@ -258,8 +233,7 @@ waiting only on the device's own reply **byte-count** — it exits on the first
 **How to probe registers safely.** Reads are non-destructive. Distinguish *status/
 descriptor* registers from the *live counter* by reading the **same register
 before and after** a state change: a register whose decoded plaintext is **identical
-before and after** a clear is a descriptor, not the counter (see (f) /
-[`g6020-wire-codec-crack.md`](g6020-wire-codec-crack.md) §3). Keep probing read-only
+before and after** a clear is a descriptor, not the counter (see (f)). Keep probing read-only
 until you have positively identified the counter — do not issue write/clear
 operands while exploring.
 
@@ -269,22 +243,16 @@ operands while exploring.
 
 The waste-ink absorber counter is a value in the printer's **EEPROM/NVRAM** that
 firmware increments as it parks ink in the absorber, and tests against a threshold
-to raise 5B00. The reset's job is to write that counter back down. For deeper
-background on how Canon/PIXMA NVRAM counters are stored and modelled, see the SOTA
-lanes [`sota-eeprom-waste-counter-model.md`](sota-eeprom-waste-counter-model.md)
-and [`sota-academic-eeprom-re.md`](sota-academic-eeprom-re.md), and the family
-lineage in [`sota-pixma-octo-lineage.md`](sota-pixma-octo-lineage.md).
+to raise 5B00. The reset's job is to write that counter back down.
 
 **The encoded readback registers (G6020-observed).** Service-mode status reads come
 back **obfuscated** with the live session keyword (e). On the G6020:
 
 - **`0x84`** — a **constant device/status descriptor**, *not* the live counter:
   decoded plaintext is **byte-identical before and after** an in-session clear, and
-  the codec is a simple keyword-XOR stream (fully cracked; (h))
-  ([`g6020-wire-codec-crack.md`](g6020-wire-codec-crack.md) §2–§3).
+  the codec is a simple keyword-XOR stream (fully cracked; (h)).
 - **`0x8c`** — the **more likely counter register** (it *does* vary independently),
-  but its codec is a **nonlinear** keyword key-schedule and is **not yet cracked**
-  ([`g6020-wire-codec-crack.md`](g6020-wire-codec-crack.md) §4).
+  but its codec is a **nonlinear** keyword key-schedule and is **not yet cracked**.
 
 **The commit-on-clean-power-button behavior (G6020-observed).** The 5B00 state does
 **not** commit on the in-session write alone, and it does **not** commit on a raw
@@ -292,9 +260,7 @@ back **obfuscated** with the live session keyword (e). On the G6020:
 out of service mode (after which it reboots to the normal PID `04a9:1865`). So the
 operator sequence is: enter service mode → SEND the selector + clear operands →
 **power off with the power button** → verify with a post-power-cycle counter read
-([`g6020-wire-codec-crack.md`](g6020-wire-codec-crack.md) §5,
-[`g6020-reset-completion.md`](g6020-reset-completion.md) §4,
-[`../runbook/g6020-native-reset.md`](../runbook/g6020-native-reset.md)). **Never
+(see [`../runbook/g6020-native-reset.md`](../runbook/g6020-native-reset.md)). **Never
 yank power to "save" the reset** — let the firmware shut down cleanly so it flushes
 the EEPROM.
 
@@ -304,8 +270,7 @@ but a given register's *plaintext* should be constant. (2) Crack the per-registe
 read codec ((e)/(h)) enough to compare plaintexts. (3) Issue a clear (only once you
 trust the write path), power-button cycle, and re-read: the register whose decoded
 value **drops** is the counter. (4) Cross-check the operand against the model's
-template DB (h) and the cross-validation method in
-[`g6020-reset-crossval.md`](g6020-reset-crossval.md).
+template DB (h) and a cross-validation method.
 
 ---
 
@@ -340,14 +305,12 @@ drawn in [`../diagrams/methodology-trifecta.mmd`](../diagrams/methodology-trifec
   keyword, clamp the page-cap buffer (c), and — for a genuine-frame capture —
   neutralize the cloud *licensing* gates so a net-free reset runs (the bypass is a
   few `JZ→JMP` patches; it does **not** touch the repair data path)
-  ([`../TOOLS.md`](../TOOLS.md) §3, [`wicreset-drm-bypass.md`](wicreset-drm-bypass.md)).
+  ([`../TOOLS.md`](../TOOLS.md) §3).
 - **Lane 3 — Ghidra (offline decompile).** Static RE recovers what the wire can
   never show: the IOCTL→URB field map (c), the *net-free* proof of the reset
   subtree, and the cipher/template tables (h). Use `analyzeHeadless` + pyghidra; the
-  button→wire recipe (RT_DIALOG control-ID → MFC message map → wire) is in
-  [`canon-tool-ghidra-notes.md`](canon-tool-ghidra-notes.md) ([`../TOOLS.md`](../TOOLS.md)
-  §2). The dynamic-instrumentation tradecraft writeup is
-  [`sota-dynamic-instrumentation.md`](sota-dynamic-instrumentation.md).
+  button→wire recipe is RT_DIALOG control-ID → MFC message map → wire
+  ([`../TOOLS.md`](../TOOLS.md) §2).
 
 **The capture rig.** Because Wine cannot surface USB to the closed tools, the rig is
 a throwaway **Win11 guest under session-mode libvirt** with **real USB passthrough**
@@ -371,10 +334,8 @@ two distinct layers, and do not assume one cipher covers everything:
 1. **Template-DB obfuscation (at rest).** WICReset's model DB ships inside an
    encrypted `APP.BIN` container: strip footer → **3DES-EDE3-CBC** (a zero key / IV
    from empty-string construction) → strip pad → zlib inflate → `devices.xml`
-   (G6020-observed; [`wicreset-appbin-container.md`](wicreset-appbin-container.md),
-   [`wicreset-appbin-cipher.md`](wicreset-appbin-cipher.md)). The per-model command
-   tables come straight from that decrypted DB
-   ([`wicreset-g6020-reset-template.md`](wicreset-g6020-reset-template.md)).
+   (G6020-observed). The per-model command
+   tables come straight from that decrypted DB.
 2. **On-wire obfuscation (in motion).** The maintenance frames are run through a
    **functor-3 envelope** XOR-enciphered by a **functor-2** transform seeded by the
    **bound session keyword**. The decisive bug that defeated earlier attempts was a
@@ -383,63 +344,35 @@ two distinct layers, and do not assume one cipher covers everything:
    With that fix the genuine 23-byte `set_command`
    (`85 00 00 || 20-byte ciphertext`) reproduces **byte-exact (23/23)** — and the
    transform is provably invertible, so the firmware decrypts our ciphertext back to
-   a legitimate command ([`g6020-wire-codec-crack.md`](g6020-wire-codec-crack.md),
-   [`g6020-genuine-setcommand-decode.md`](g6020-genuine-setcommand-decode.md) §2–§3,
-   [`g6020-reset-completion.md`](g6020-reset-completion.md) §3). The CANON-SR5
-   derivation is in [`g6020-reset-derivation.md`](g6020-reset-derivation.md) and the
-   recv-side re-confirm in [`g6020-recv-transport-re.md`](g6020-recv-transport-re.md).
+   a legitimate command. The keystream derives from a CANON-SR5 schedule, confirmed
+   on the recv side as well.
 
 **Two practical truths that save you effort (G6020-observed):**
 
 - The **write/clear path is NOT keyword-keyed.** The device ACK'd the *plain*
   operand frames `85 00 00 00 00 10 07 7c` then `85 00 00 00 00 0d 00 00` (`OK(8)`)
   with the operand sent verbatim. The keyword gates the **read** obfuscation, not
-  the write — so a working clear may need **no cipher at all**
-  ([`g6020-wire-codec-crack.md`](g6020-wire-codec-crack.md) §5,
-  [`g6020-genuine-setcommand-decode.md`](g6020-genuine-setcommand-decode.md) §3).
+  the write — so a working clear may need **no cipher at all**.
 - The **read codecs differ in difficulty.** `0x84` is a linear keyword-XOR stream,
   cracked from ~40 random-keyword sessions (40/40 byte-exact, validated
   out-of-sample); `0x8c` is **nonlinear** in all three keyword bytes and remains
   open — finish it with a read-path Ghidra decompile **or** controlled-keyword
-  captures (keywords differing in a single byte)
-  ([`g6020-wire-codec-crack.md`](g6020-wire-codec-crack.md) §2/§4/§7).
+  captures (keywords differing in a single byte).
 
 **How to peel obfuscation on a new model.** Decrypt the at-rest template DB first
 (Lane 3) to read the command tables in clear; then attack the on-wire codec with a
 **dataset** of constant-state sessions (the keyword varies, the plaintext doesn't),
 testing linearity (GF(2)) before assuming a nonlinear schedule; and always keep a
 **ground-truth capture** (Lane 1/2) to validate byte-exact and avoid overfitting a
-single sample ([`g6020-genuine-setcommand-decode.md`](g6020-genuine-setcommand-decode.md)
-§5 is explicit on how many samples a keystream/block crack needs).
+single sample — be deliberate about how many samples a keystream/block crack needs.
 
 ---
 
-## Cross-reference index
+## See also
 
-- **Transport (authoritative):** [`usbprint-vendor-urb-mapping.md`](usbprint-vendor-urb-mapping.md)
-  · layered context [`canon-servicemode-transport-research.md`](canon-servicemode-transport-research.md)
-  · IOCTL family [`servicemode-ioctl-0x16000c.md`](servicemode-ioctl-0x16000c.md)
-- **Service-mode discovery / handshake:** [`servicetool-v5103-servicemode-reset-re.md`](servicetool-v5103-servicemode-reset-re.md)
-  · [`servicetool-v5103-read-re.md`](servicetool-v5103-read-re.md)
-  · [`servicetool-v5103-reset-handshake.md`](servicetool-v5103-reset-handshake.md)
-- **Write cipher / completion / counter:** [`g6020-wire-codec-crack.md`](g6020-wire-codec-crack.md)
-  · [`g6020-genuine-setcommand-decode.md`](g6020-genuine-setcommand-decode.md)
-  · [`g6020-reset-completion.md`](g6020-reset-completion.md)
-  · [`g6020-reset-derivation.md`](g6020-reset-derivation.md)
-  · [`g6020-reset-crossval.md`](g6020-reset-crossval.md)
-  · [`g6020-recv-transport-re.md`](g6020-recv-transport-re.md)
-- **Template-DB obfuscation:** [`wicreset-appbin-container.md`](wicreset-appbin-container.md)
-  · [`wicreset-appbin-cipher.md`](wicreset-appbin-cipher.md)
-  · [`wicreset-g6020-reset-template.md`](wicreset-g6020-reset-template.md)
-- **Cloud-independence:** [`wicreset-drm-bypass.md`](wicreset-drm-bypass.md)
-- **Instrumentation / method:** [`../TOOLS.md`](../TOOLS.md)
-  · [`sota-dynamic-instrumentation.md`](sota-dynamic-instrumentation.md)
-  · [`canon-tool-ghidra-notes.md`](canon-tool-ghidra-notes.md)
-  · [`../diagrams/methodology-trifecta.mmd`](../diagrams/methodology-trifecta.mmd)
-- **Counter storage / lineage (background):** [`sota-eeprom-waste-counter-model.md`](sota-eeprom-waste-counter-model.md)
-  · [`sota-academic-eeprom-re.md`](sota-academic-eeprom-re.md)
-  · [`sota-pixma-octo-lineage.md`](sota-pixma-octo-lineage.md)
 - **Validated G6020 procedure:** [`../runbook/g6020-native-reset.md`](../runbook/g6020-native-reset.md)
-- **Ethics / safety:** [`../../ETHICS/RIGHT-TO-REPAIR.md`](../../ETHICS/RIGHT-TO-REPAIR.md)
-  · [`../../SECURITY.md`](../../SECURITY.md)
-  · [`../adr/0007-canon-tool-reverse-engineering.md`](../adr/0007-canon-tool-reverse-engineering.md)
+- **Workbench / instrumentation inventory:** [`../TOOLS.md`](../TOOLS.md)
+  · [`../diagrams/methodology-trifecta.mmd`](../diagrams/methodology-trifecta.mmd)
+- **Methodology / posture record:** [`../adr/0007-canon-tool-reverse-engineering.md`](../adr/0007-canon-tool-reverse-engineering.md)
+- **Ethics / safety:** [RIGHT-TO-REPAIR.md](https://github.com/Jesssullivan/canon-megatank-reset/blob/main/ETHICS/RIGHT-TO-REPAIR.md)
+  · [SECURITY.md](https://github.com/Jesssullivan/canon-megatank-reset/blob/main/SECURITY.md)

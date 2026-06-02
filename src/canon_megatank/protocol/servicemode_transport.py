@@ -287,8 +287,8 @@ class ServiceModeTransport:
         self, frame: bytes, *, timeout_ms: int = 5000, length: int = DEFAULT_RECV_LEN
     ) -> bytes:
         """SEND-primed RECV step. Routes by frame SHAPE to the validated direction
-        (see usbprint-vendor-urb-mapping.md §7), because the WICReset session mixes
-        an OUT open with two IN reads under this one op-level call:
+        (see docs/research/canon-service-mode-field-guide.md), because the WICReset
+        session mixes an OUT open with two IN reads under this one op-level call:
 
         * A bare 3-byte READ HEADER (``82 00 00`` get_keyword / ``86 00 00``
           get_command) is a VENDOR_GET control-IN (``0xC1``): the 3-byte prefix

@@ -74,7 +74,7 @@ dot -Tsvg docs/diagrams/exploit-dataflow.dot -o docs/diagrams/exploit-dataflow.s
 - **Transport** is usbprint VENDOR control on EP0, never bulk: `VENDOR_SET`
   (IOCTL `0x220038`) = `bmRequestType 0x41` OUT, `bRequest = frame[0]`, data = the
   whole frame verbatim; `VENDOR_GET` (`0x22003c`) = `0xC1` IN. Decompiled from
-  `usbprint.sys` 10.0.26100.8328 (`docs/research/usbprint-vendor-urb-mapping.md`).
+  `usbprint.sys` 10.0.26100.8328 (`docs/research/canon-service-mode-field-guide.md`).
 - **set_session is PLAIN** `81 00 00 03` (4 bytes); the enciphered 8-byte form
   stalls. **get_keyword** returns a live **3-byte** keyword — the only runtime
   input.
@@ -89,7 +89,7 @@ dot -Tsvg docs/diagrams/exploit-dataflow.dot -o docs/diagrams/exploit-dataflow.s
   NOT an unplug.
 - **Cloud is licensing-only.** The reset is cloud-INDEPENDENT: `clearCounters` and
   its whole subtree are net-free; `QUERY_KEYS` collapses to one bool; no cloud byte
-  feeds the payload, keyword, or completion (`docs/research/wicreset-drm-bypass.md`).
+  feeds the payload, keyword, or completion (`docs/research/canon-service-mode-field-guide.md`).
 - The **3 DRM gates** patched in `drm-bypass-controlflow.dot` are exact VAs/bytes
   for `printerpotty.exe` sha256 `a199447db…564b3e8` only: `0x44012d` (RESET_GUID),
   `0x44054a` (QUERY_KEYS transport), `0x440563` (valid-bit) — each `74 → EB`.

@@ -1,5 +1,5 @@
 // WICReset / PrinterPotty v5.95 — cloud-DRM BYPASS control-flow
-// Source of truth: docs/research/wicreset-drm-bypass.md (3 gates, exact VAs + bytes,
+// Source of truth: docs/research/canon-service-mode-field-guide.md (3 gates, exact VAs + bytes,
 //   adversarial critique adding the RESET_GUID gate), memory/canon-5b00-wicreset-pivot.md.
 // Render: just diagrams  (dot -Tsvg drm-bypass-controlflow.dot -o drm-bypass-controlflow.svg)
 //

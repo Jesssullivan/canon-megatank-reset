@@ -16,8 +16,8 @@ maintenance protocol. The proprietary tools are **RE oracles only**:
 - **Canon Service Tool** (v5103) — static RE via Ghidra (`ghidra/`).
 - **WICReset / WIC Reset Connect** (PrinterPotty build) — RE oracle + capture
   source under Wine on the capture host.
-- **Canon firmware** (pixma decrypt lineage) — dispatch-table cross-check (blocked;
-  see `docs/research/canon-tool-firmware-sourcing.md`).
+- **Canon firmware** (pixma decrypt lineage) — dispatch-table cross-check (blocked
+  on G6020 firmware sourcing).
 
 This repo was extracted (history-preserving) from `printstack` on 2026-05-29.
 printstack keeps only its CUPS `office` print queue for the G6020; reset lives here.

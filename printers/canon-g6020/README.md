@@ -31,8 +31,7 @@ discovery is complete and locked.
 
 ## Refurb roadmap
 
-See `docs/PRODUCTIONIZATION.md` and ADR
-`docs/adr/0007-canon-tool-reverse-engineering.md`.
+See ADR `docs/adr/0007-canon-tool-reverse-engineering.md`.
 
 ## Operational notes
 

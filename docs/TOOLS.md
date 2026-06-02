@@ -21,9 +21,8 @@ and capture they touch is gitignored; only the *scripts that drive them* and the
 
 > **The validated result.** The write cipher reproduces WICReset's genuine reset
 > frame **23/23 byte-exact**, the reset is **cloud-independent**, and it **cleared
-> 5B00 on real hardware** (`docs/runbook/g6020-native-reset.md`,
-> `docs/runbook/live-reset-write-2026-05-31.md`). The trifecta below is how that
-> ground truth was obtained and cross-checked.
+> 5B00 on real hardware** (`docs/runbook/g6020-native-reset.md`). The trifecta
+> below is how that ground truth was obtained and cross-checked.
 
 ---
 
@@ -59,12 +58,12 @@ captures and decompiles into the verified protocol. Both are enumerated below.
 **What it is.** A throwaway Win11 guest under **session-mode libvirt**
 (`qemu:///session`, **no root**) on the capture host **mbp-13** (Rocky Linux 10).
 Its entire reason to exist is the `<hostdev>` USB passthrough: Wine cannot surface
-USB to the closed Windows tools (`docs/research/wicreset-wine-passthrough.md`), so
-a real Win11 guest drives the printer natively while host-side `usbmon` records
-the bus. Three IaC layers make it the Windows equivalent of cloud-init.
+USB to the closed Windows tools, so a real Win11 guest drives the printer natively
+while host-side `usbmon` records the bus. Three IaC layers make it the Windows
+equivalent of cloud-init.
 
 **Where it lives.** `host/vm-capture/` (see its
-[`README.md`](../host/vm-capture/README.md) for the operator walk-through).
+[`README.md`](https://github.com/Jesssullivan/canon-megatank-reset/blob/main/host/vm-capture/README.md) for the operator walk-through).
 
 | Layer | File(s) | Role |
 |---|---|---|
@@ -105,8 +104,8 @@ vm-capture README:
 > The managed `<hostdev>` grabs the G6020 from the host when the VM starts and
 > hands it back on stop; while held, host CUPS/ipp-usb cannot use it (expected).
 
-Background on why a VM and not Wine, and the spike history:
-`docs/runbook/canon-tool-r2-qemu-spike.md`, `docs/runbook/canon-tool-r1-cheap-spike.md`.
+Background on why a VM and not Wine, and the spike history, is consolidated in the
+field guide (`docs/research/canon-service-mode-field-guide.md`).
 
 ---
 
@@ -142,10 +141,7 @@ tshark -r captures/<label>.pcapng \
 **Device identities to filter on:** `04a9:1865` (normal mode), `04a9:12fe`
 ("Printer in service mode"). The maintenance transport is **usbprint VENDOR
 control on EP0** (`VENDOR_SET` IOCTL `0x220038` = `bmRequestType 0x41` OUT;
-`VENDOR_GET` `0x22003c` = `0xC1` IN) — see
-[`docs/research/usbprint-vendor-urb-mapping.md`](research/usbprint-vendor-urb-mapping.md)
-and the analysis-pipeline runbook
-[`docs/runbook/wicreset-capture-analysis-pipeline.md`](runbook/wicreset-capture-analysis-pipeline.md).
+`VENDOR_GET` `0x22003c` = `0xC1` IN).
 
 **Reproduce.** Apply `just host-apply` (the `canon_tool_dev` role) to mbp-13, log
 out/in for group membership, then run a capture script. There is also a
@@ -163,10 +159,9 @@ the reset subtree, and the write cipher tables. Two engines are used:
 driving a saved, analyzed project headless on newer Ghidra).
 
 **Where it lives.** Tracked scripts in `ghidra/` (see its
-[`README.md`](../ghidra/README.md)); the binaries + project DB are **gitignored**
-under `.ghidra-work/` (no redistribution). Curated findings:
-[`docs/research/canon-tool-ghidra-notes.md`](research/canon-tool-ghidra-notes.md)
-and the per-topic `docs/research/servicetool-*` / `docs/research/wicreset-*` notes.
+[`README.md`](https://github.com/Jesssullivan/canon-megatank-reset/blob/main/ghidra/README.md)); the binaries + project DB are **gitignored**
+under `.ghidra-work/` (no redistribution). Curated findings are consolidated in
+the field guide (`docs/research/canon-service-mode-field-guide.md`).
 
 **The scripts (what each does):**
 
@@ -251,10 +246,8 @@ dump).
 
 **Reproduce.** Bring up the VM (§0), stage `frida-inject` + the hook (the
 instrumented-capture script base64-chunks files into the guest over WinRM), then
-launch per the pattern above. Evidence trail:
-[`docs/runbook/g6020-session-capture.md`](runbook/g6020-session-capture.md),
-[`docs/research/wicreset-drm-bypass.md`](research/wicreset-drm-bypass.md),
-[`docs/research/wicreset-appbin-container.md`](research/wicreset-appbin-container.md).
+launch per the pattern above. Evidence trail is consolidated in the field guide
+(`docs/research/canon-service-mode-field-guide.md`).
 
 ---
 
@@ -317,13 +310,13 @@ protocol. Each cites its ground truth in `docs/research/`.
 
 | Util | What it does | Ground truth |
 |---|---|---|
-| `scripts/appbin_decrypt.py` | Decrypt `printerpotty.exe`'s `APP.BIN` container: strip 4-byte footer → **3DES-EDE3-CBC** (zero key, zero IV — empty-wxString construction) → strip PKCS pad → zlib inflate → the `devices.xml` template DB. Self-contained DES (no OpenSSL dep). | `docs/research/wicreset-appbin-cipher.md`, `docs/research/wicreset-appbin-container.md` |
-| `scripts/appbin_oracle.py` | Validation oracle + container model for APP.BIN (PE resource offset/size, entropy, block-alignment, the `FUN_00530ae0` mount pipeline). Confirms the decrypt against the static model. | `docs/research/wicreset-appbin-container.md` |
-| `scripts/canon_sr5_cipher.py` | The **CANON-SR5** reference cipher + encoder — reproduces the maintenance command-frame transform for the G6000/G6020 family. Reads all substitution tables **directly from the decrypted `devices.xml`** (never hard-codes them); functor-2/3 with the validated SUBJECT/SEED role swap that yields the 23-byte `set_command`. | `docs/research/wicreset-g6020-reset-template.md`, `docs/research/g6020-genuine-setcommand-decode.md` |
-| `scripts/g6020_wire_codec_crack.py` | Offline crack of the service-mode **readback** wire codec from a 40-session dataset: `0x84` fully recovered (XOR stream over a constant 20-byte plaintext with a fixed keyword-byte selection table; 40/40 byte-exact); `0x8c` documented as an open nonlinear item. NO device touched. | `docs/research/g6020-wire-codec-crack.md` |
-| `scripts/parse-wicreset-capture.py` | The turnkey pcap extractor: pull EVERY EP0 control transfer to/from the service-mode device (`bmRequestType`/`bRequest`/`wValue`/`wIndex`/data + responses) + bulk frames, flag the absorber-reset frame, emit ordered/annotated/`--json`/`--replay-snippet`. Thin wrapper around `tshark`. | `docs/runbook/wicreset-capture-analysis-pipeline.md` |
+| `scripts/appbin_decrypt.py` | Decrypt `printerpotty.exe`'s `APP.BIN` container: strip 4-byte footer → **3DES-EDE3-CBC** (zero key, zero IV — empty-wxString construction) → strip PKCS pad → zlib inflate → the `devices.xml` template DB. Self-contained DES (no OpenSSL dep). | `docs/research/canon-service-mode-field-guide.md` |
+| `scripts/appbin_oracle.py` | Validation oracle + container model for APP.BIN (PE resource offset/size, entropy, block-alignment, the `FUN_00530ae0` mount pipeline). Confirms the decrypt against the static model. | `docs/research/canon-service-mode-field-guide.md` |
+| `scripts/canon_sr5_cipher.py` | The **CANON-SR5** reference cipher + encoder — reproduces the maintenance command-frame transform for the G6000/G6020 family. Reads all substitution tables **directly from the decrypted `devices.xml`** (never hard-codes them); functor-2/3 with the validated SUBJECT/SEED role swap that yields the 23-byte `set_command`. | `docs/research/canon-service-mode-field-guide.md` |
+| `scripts/g6020_wire_codec_crack.py` | Offline crack of the service-mode **readback** wire codec from a 40-session dataset: `0x84` fully recovered (XOR stream over a constant 20-byte plaintext with a fixed keyword-byte selection table; 40/40 byte-exact); `0x8c` documented as an open nonlinear item. NO device touched. | `docs/research/canon-service-mode-field-guide.md` |
+| `scripts/parse-wicreset-capture.py` | The turnkey pcap extractor: pull EVERY EP0 control transfer to/from the service-mode device (`bmRequestType`/`bRequest`/`wValue`/`wIndex`/data + responses) + bulk frames, flag the absorber-reset frame, emit ordered/annotated/`--json`/`--replay-snippet`. Thin wrapper around `tshark`. | `docs/research/canon-service-mode-field-guide.md` |
 | `scripts/safe-ping-probe.py` | Read documented-safe baseline (IEEE-1284 device-id, USB descriptors) and emit YAML for `maintenance.yaml::ping_suite_baseline`. No bulk-OUT, no vendor commands, no EEPROM. | `scripts/AGENTS.md` |
-| `scripts/experiment-handshake-reset.py` | **Live discriminator** (debug unit only) for Lane A's recovered handshake — sends the candidate session-open→preamble→payload with a few GUESSED runtime bytes. Not production code. | `docs/research/servicetool-v5103-reset-handshake.md` |
+| `scripts/experiment-handshake-reset.py` | **Live discriminator** (debug unit only) for Lane A's recovered handshake — sends the candidate session-open→preamble→payload with a few GUESSED runtime bytes. Not production code. | `docs/research/canon-service-mode-field-guide.md` |
 
 **The 3-layer instrumented capture** that fuses the lanes is
 `scripts/wicreset-instrumented-capture.sh` (`preflight | stage | rehearse |
@@ -351,16 +344,13 @@ experiment need the capture host (`tshark` / the printer).
 
 ## Cross-references
 
-- **RE findings (per protocol claim):** `docs/research/` — start with
-  `usbprint-vendor-urb-mapping.md` (transport), `wicreset-g6020-reset-template.md`
-  + `g6020-genuine-setcommand-decode.md` (write cipher), `wicreset-drm-bypass.md`
-  (cloud-independence), `g6020-wire-codec-crack.md` (readback codec),
-  `canon-tool-ghidra-notes.md` (the button→wire decompile recipe).
-- **Runbooks (operational evidence):** `docs/runbook/` — `g6020-native-reset.md`
-  (the validated native reset, 23/23 byte-exact), `live-reset-write-2026-05-31.md`
-  (the hardware clear), `wicreset-capture-analysis-pipeline.md` (capture→encode),
-  `g6020-session-capture.md` (the encrypted-session capture, no key),
-  `canon-tool-r1-cheap-spike.md` / `canon-tool-r2-qemu-spike.md` (rig spikes).
+- **RE findings (per protocol claim):** the consolidated field guide
+  `docs/research/canon-service-mode-field-guide.md` — transport, write cipher,
+  cloud-independence, readback codec, and the button→wire decompile recipe.
+- **Runbooks (operational evidence):** `docs/runbook/g6020-native-reset.md`
+  (the validated native reset, 23/23 byte-exact); the capture-pipeline,
+  encrypted-session, and rig-spike evidence is consolidated in the field guide
+  `docs/research/canon-service-mode-field-guide.md`.
 - **Formal protocol:** `docs/spec/megatank-maintenance-protocol.md` +
   `src/canon_megatank/protocol/model.py` (run `just model`).
 - **Diagrams:** `docs/diagrams/` — `methodology-trifecta.mmd` (this loop),
