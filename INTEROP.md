@@ -76,8 +76,9 @@ tools.
 - **We do not vendor pixma source here.** It is referenced as an external
   dependency; the operator's `jesssullivan/pixma` fork (branch
   `tin-1698-pixma-build-tooling`: a reproducible `Makefile` + portability fix,
-  binaries gitignored) is the working clone. `third_party/pixma/README.md` is a
-  placeholder describing the planned submodule wiring.
+  binaries gitignored) is the working clone. `third_party/pixma/README.md`
+  documents the optional `third_party/pixma/` submodule layout for consumers who
+  prefer vendoring.
 - **The cross-check is currently BLOCKED on firmware sourcing for the G6020**
   (panel/internet-only delivery, CDN 404s — see
   `docs/research/canon-tool-firmware-sourcing.md`). The dispatch-table cross-check
