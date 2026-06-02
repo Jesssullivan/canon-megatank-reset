@@ -17,16 +17,20 @@ concurrency:
 
 jobs:
   secrets-scan:
-    name: secrets-scan
+    name: secrets-scan (gitleaks + trufflehog)
     runs-on: ${{ fromJSON(vars.PRIMARY_LINUX_RUNNER_LABELS_JSON || '["ubuntu-latest"]') }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - uses: tinyland-inc/ci-templates/.github/actions/setup-nix@v2
-      - name: Gitleaks history scan
-        run: nix develop --command just secrets-scan
+      # Canonical tinyland scan: TruffleHog (--only-verified) + gitleaks history
+      # scan, honoring this repo's .gitleaks.toml (scopes the RE cipher-hex
+      # allowlist to docs/research + docs/paper). Surfaces findings_count into
+      # the step summary. See ci-templates/.github/actions/secrets-scan.
+      - uses: tinyland-inc/ci-templates/.github/actions/secrets-scan@v2
+        with:
+          gitleaks-config: .gitleaks.toml
 
   check:
     name: check (lint + typecheck + yaml/ansible)

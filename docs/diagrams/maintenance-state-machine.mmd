@@ -1,0 +1,50 @@
+stateDiagram-v2
+%% Canon G6020 service-mode MAINTENANCE PROTOCOL — state machine
+%% Source of truth: docs/runbook/g6020-native-reset.md §3,
+%%   docs/research/usbprint-vendor-urb-mapping.md §7,
+%%   docs/research/g6020-wire-codec-crack.md (register map 0x84/0x8a/0x8c/0x86),
+%%   docs/research/g6020-genuine-setcommand-decode.md (empty-0x86 by design).
+%% Render: just diagrams  (mmdc -> maintenance-state-machine.svg)
+%%
+%% Every command is an EP0 usbprint VENDOR control transfer on iface 0:
+%%   writes  = VENDOR_SET  0x41 OUT  (IOCTL 0x220038), bRequest = frame[0]
+%%   reads   = VENDOR_GET  0xC1 IN   (IOCTL 0x22003c), 3-byte header primes the read
+%% The maintenance command identity rides in the frame, NOT in a transport opcode.
+    direction TB
+    [*] --> NoSession: device in service mode (04a9:12fe)
+
+    NoSession --> Session: <b>set_session</b> 81 00 00 03\n(VENDOR_SET 0x41/0x81, PLAIN 4B)\ndevice length-validates → ACK
+
+    note right of NoSession
+      set_session MUST be PLAIN (4 bytes).
+      The enciphered 8-byte form STALLs.
+      Bulk-OUT/IN never answer — control only.
+    end note
+
+    state Session {
+        direction TB
+        [*] --> Keyed
+        Keyed --> Keyed: <b>get_keyword</b> 82 00 00 →\nlive 3-byte keyword (fresh per session,\nstable within it) — seeds the write cipher
+
+        Keyed --> Keyed: get_version 8a 00 00 →\nstable enciphered 20B id (e7 90 c1 84…)\nused to recognize "Canon G6000 series"
+
+        Keyed --> Keyed: read 0x84 → constant 20B descriptor\n(XOR-stream codec CRACKED — NOT the counter)
+
+        Keyed --> Keyed: read 0x8c → 20B waste register\n(nonlinear key schedule — NOT yet cracked)
+
+        Keyed --> Selected: <b>set_command SELECTOR</b>\n85 00 00 || payload(20)  (operand 10 07 7c)\nVENDOR_SET 0x41/0x85 — selects 'common' waste row
+
+        Selected --> Cleared: <b>set_command CLEAR</b>\n85 00 00 || payload(20)  (operand 0d 00 00)\n← THE 5B00 WRITE — zeroes the counter
+
+        Cleared --> Cleared: get_command 86 00 00 → EMPTY\nby design: NO finalize cmd.\nDo NOT block / retry / gate on 0x86.
+    }
+
+    Session --> Committed: release USB handle →\nCLEAN POWER-BUTTON shutdown\n→ printhead parks → EEPROM flush
+
+    Committed --> [*]: reboots NORMAL (04a9:1865)\n5B00 cleared, state = idle
+
+    note right of Committed
+      Commit is the clean power-off, NOT any
+      command. An abrupt UNPLUG skips the
+      park + EEPROM flush → 5B00 returns.
+    end note

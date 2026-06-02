@@ -58,24 +58,51 @@ for d in r.iter('disk'):
     s = d.find('source')
     if s is not None and s.get('file','').endswith('canon-capture-win11.qcow2'):
         s.set('file', f"{home}/canon-tool-staging/{name}.qcow2")
-nv = r.find('./os/nvram');
+nv = r.find('./os/nvram')
 if nv is not None: nv.text = f"{home}/canon-tool-staging/{name}_VARS.fd"
 dev = r.find('devices')
-# drop graphics/video (headless)
-for tag in ('graphics','video'):
+# Disk lettering (all SATA so Win11 Setup sees the system disk without the
+# virtio-win driver — virtio gave an empty disk list):
+#   system disk vda -> sda ;  install ISO (was sda) -> sdb ;  unattend CD -> sdc.
+for d in dev.findall('disk'):
+    tgt = d.find('target')
+    if tgt is None:
+        continue
+    if tgt.get('dev') == 'vda':                       # system disk
+        tgt.set('dev', 'sda'); tgt.set('bus', 'sata')
+    elif tgt.get('dev') == 'sda':                     # install ISO cdrom -> sdb
+        tgt.set('dev', 'sdb'); tgt.set('bus', 'sata')
+# Drop spice graphics/video/channels, then add a VNC display with a SUPPORTED
+# video model (vga — qxl is rejected by this qemu: 'does not support video model
+# qxl'). Headless but observable via VNC + virsh screenshot/send-key.
+for tag in ('graphics', 'video'):
     for e in dev.findall(tag): dev.remove(e)
-# add unattend CD as a 2nd cdrom (sdb)
+for ch in dev.findall('channel'):
+    tgt = ch.find('target')
+    if ch.get('type') == 'spicevmc' or (tgt is not None and 'spice' in (tgt.get('name') or '')):
+        dev.remove(ch)
+ET.SubElement(dev, 'graphics', {'type': 'vnc', 'port': '-1', 'autoport': 'yes', 'listen': '127.0.0.1'})
+_v = ET.SubElement(dev, 'video'); ET.SubElement(_v, 'model', {'type': 'vga'})
+# add unattend CD as a cdrom (sdc — sda/sdb are the system disk + install ISO)
 cd = ET.SubElement(dev,'disk',{'type':'file','device':'cdrom'})
 ET.SubElement(cd,'driver',{'name':'qemu','type':'raw'})
 ET.SubElement(cd,'source',{'file':unattend})
-ET.SubElement(cd,'target',{'dev':'sdb','bus':'sata'})
+ET.SubElement(cd,'target',{'dev':'sdc','bus':'sata'})
 ET.SubElement(cd,'readonly')
-# qemu cmdline hostfwd: host:WINRM -> guest:5985 (user-mode NAT)
-q = ET.SubElement(r, f'{{{ns}}}commandline')
-ET.SubElement(q, f'{{{ns}}}arg', {'value':'-netdev'})
-ET.SubElement(q, f'{{{ns}}}arg', {'value':f'user,id=wfwd,hostfwd=tcp:127.0.0.1:{winrm}-:5985'})
-ET.SubElement(q, f'{{{ns}}}arg', {'value':'-device'})
-ET.SubElement(q, f'{{{ns}}}arg', {'value':'virtio-net,netdev=wfwd'})
+# WinRM port-forward: host:WINRM -> guest:5985, via libvirt's NATIVE
+# <portForward> on the existing user interface with the passt backend
+# (/usr/bin/passt present). This avoids the raw-qemu 2nd-netdev crash.
+iface = dev.find("interface[@type='user']")
+# Force the NIC to e1000e: Win11 ships the Intel driver in-box but has NO
+# virtio-net driver, so a virtio NIC comes up with no IP -> passt has no guest
+# address to forward to -> WinRM (healthy on guest-localhost) is unreachable and
+# every win_ping resets. e1000e gets a passt DHCP lease immediately.
+_m = iface.find('model')
+if _m is None: _m = ET.SubElement(iface, 'model')
+_m.set('type', 'e1000e')
+ET.SubElement(iface, 'backend', {'type':'passt'})
+pf = ET.SubElement(iface, 'portForward', {'proto':'tcp'})
+ET.SubElement(pf, 'range', {'start':str(winrm), 'to':'5985'})
 t.write(dst, xml_declaration=True, encoding='unicode')
 print("wrote", dst)
 PY

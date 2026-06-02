@@ -1,0 +1,72 @@
+flowchart TD
+%% Canon G6020 5B00 native reset — RE-to-reset LIFECYCLE
+%% Source of truth: docs/runbook/g6020-native-reset.md,
+%%   docs/research/usbprint-vendor-urb-mapping.md,
+%%   docs/research/g6020-genuine-setcommand-decode.md,
+%%   memory/canon-5b00-wicreset-pivot.md (VALIDATED on hardware 2026-06-01, commit d2f3c81).
+%% Render: just diagrams  (mmdc -> lifecycle.svg)
+%%
+%% The end-to-end path a native, key-free, cloud-free reset travels: from the
+%% physical service-mode entry, through the recovered usbprint VENDOR transport,
+%% the plain session + live-keyword handshake, the recovered write cipher, the two
+%% set_command writes, and the CLEAN-POWER-BUTTON commit that flushes EEPROM.
+    start([5B00 / markerWasteInkReceptacleFull<br/>printer-state = stopped]):::problem
+
+    subgraph SM["1 - Service-mode entry  (physical)"]
+        combo["Panel combo: power off →<br/>hold ON → resume/cancel ×5 → release"]
+        enuma["USB re-enumerates<br/><b>04a9:1865 → 04a9:12fe</b><br/>single printer-class iface 0, alt 0<br/>EP 0x01 OUT / 0x82 IN"]
+        combo --> enuma
+    end
+
+    subgraph TR["2 - Transport  (usbprint VENDOR control, EP0 — NOT bulk)"]
+        vset["<b>VENDOR_SET</b>  (IOCTL 0x220038)<br/>bmRequestType <b>0x41</b> OUT<br/>bRequest = frame[0]<br/>wValue = (frame[1]&lt;&lt;8)|frame[2]<br/>data = WHOLE frame verbatim"]
+        vget["<b>VENDOR_GET</b>  (IOCTL 0x22003c)<br/>bmRequestType <b>0xC1</b> IN<br/>bRequest = frame[0]<br/>3-byte read header primes the read"]
+    end
+
+    subgraph SESS["3 - Service session  (the ordered handshake)"]
+        ss["<b>set_session</b>  81 00 00 03<br/>PLAIN 4 bytes — device length-validates<br/>(enciphered 8-byte form STALLs)"]
+        gk["<b>get_keyword</b>  prime 82 00 00<br/>→ live 3-byte device keyword<br/>(e.g. e4 7c 5a) — the ONLY runtime input"]
+        ss --> gk
+    end
+
+    subgraph CIPH["4 - Write cipher  (recovered offline from devices.xml, CANON-SR5 / method=3)"]
+        pad["pad keyword → e4 7c 5a 00<br/>bind_keyword → bound 00 35 a9 09"]
+        env["envelope3(method=3, 85 00 00 || operand)<br/>→ 20-byte functor-3 ENVELOPE  (SUBJECT)"]
+        f2["functor2_transform(env, seed = bound keyword, send=True)<br/><b>roles SWAPPED</b>: SUBJECT=envelope, SEED=bound kw<br/>→ 20-byte payload"]
+        pad --> f2
+        env --> f2
+    end
+
+    subgraph WRITE["5 - set_command writes  (23-byte frames, VENDOR_SET 0x41/0x85)"]
+        sel["<b>SELECTOR</b>  operand 10 07 7c<br/>85 00 00 || payload(20)  → 23 bytes<br/>addresses the 'common' waste row"]
+        clr["<b>CLEAR</b>  operand 0d 00 00  ← THE 5B00 WRITE<br/>85 00 00 || payload(20)  → 23 bytes<br/>zeroes the absorber counter"]
+        gc["get_command  prime 86 00 00 → EMPTY<br/>by design — NO finalize cmd, do NOT gate on it"]
+        sel --> clr --> gc
+    end
+
+    subgraph COMMIT["6 - Commit  (clean power-button — NOT unplug)"]
+        rel["Release the libusb handle first"]
+        pwr["Press POWER BUTTON → printhead parks<br/>→ firmware flushes cleared EEPROM page"]
+        warn["⚠ Abrupt UNPLUG skips park+flush →<br/>counter not persisted → 5B00 returns"]
+        rel --> pwr
+        pwr -. fails if .-> warn
+    end
+
+    done([Reboots NORMAL mode → re-enumerates<br/><b>04a9:1865</b>, 5B00 GONE,<br/>printer-state = idle]):::win
+
+    start --> SM
+    SM --> TR
+    ss -. carried by .-> vset
+    gk -. carried by .-> vget
+    TR --> SESS
+    SESS --> CIPH
+    CIPH --> WRITE
+    sel -. carried by .-> vset
+    clr -. carried by .-> vset
+    WRITE --> COMMIT
+    COMMIT --> done
+
+    classDef problem fill:#fde2e2,stroke:#c0392b,stroke-width:2px,color:#7b1414;
+    classDef win fill:#dff5e1,stroke:#1e8449,stroke-width:2px,color:#145a32;
+    class start problem;
+    class done win;

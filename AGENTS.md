@@ -48,9 +48,16 @@ RE oracles ─┬─ Canon Service Tool (Ghidra static)   ┐
             └─ firmware dispatch table (cross-check)  ┘     (docs/spec/, model.py)   (src/canon_megatank/)
 ```
 
-The wire frame, transport, and dispatch are recovered; the **reset payload +
-key/derivation** is the open RE target (`docs/spec/`, T2/T3). Nothing writes to a
-printer until the model is validated against a real captured reset (T4).
+The wire frame, transport, and the **reset payload + write cipher are recovered and
+hardware-validated**: the native libusb 5B00 clear was proven on a real G6020
+(23/23 byte-exact against a genuine captured frame; printer rebooted to normal
+`04a9:1865` after a clean power-button shutdown — see
+`docs/runbook/g6020-native-reset.md`). The tool writes to the printer EEPROM **only**
+via the gated `reset-native --execute` path (test-unit UUID isolation, mandatory
+pre-flight EEPROM dump, write budget, lockfile). It is **dry-run by default**, and
+while the SSOT status (`printers/canon-g6020/maintenance.yaml`) is
+`derived-unvalidated` it hard-stops unless `--accept-derived` is also passed for a
+single run on the locked debug unit.
 
 ## Safety Model (enforced in code, not docs)
 

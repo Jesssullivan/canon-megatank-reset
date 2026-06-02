@@ -13,7 +13,14 @@ import usb.core
 import usb.util
 
 from canon_megatank.types import UsbAccessError
-from canon_megatank.usb import CANON_VENDOR_ID, ClaimedDevice
+from canon_megatank.usb import (
+    CANON_VENDOR_ID,
+    DEFAULT_RECV_CONTROL_SETUP,
+    RECV_CONTROL_CANDIDATES,
+    ClaimedDevice,
+    RecvControlSetup,
+    sweep_recv_control_setups,
+)
 
 
 class _FakeEndpoint:
@@ -76,6 +83,7 @@ class FakeDevice:
         self._reply = reply
         self.writes: list[tuple[int, bytes, int]] = []
         self.reads: list[tuple[int, int, int]] = []
+        self.ctrls: list[tuple[int, int, int, int, bytes | int, int]] = []
 
     # Configuration / driver lifecycle ------------------------------------
     def is_kernel_driver_active(self, _iface: int) -> bool:
@@ -95,6 +103,21 @@ class FakeDevice:
     def read(self, endpoint: int, length: int, timeout: int) -> bytes:
         self.reads.append((endpoint, length, timeout))
         return self._reply
+
+    # Control transfer (EP0) ----------------------------------------------
+    def ctrl_transfer(  # noqa: PLR0913 — pyusb's ctrl_transfer signature (5 setup fields)
+        self,
+        bmRequestType: int,
+        bRequest: int,
+        wValue: int,
+        wIndex: int,
+        data_or_wLength: bytes | int,
+        timeout: int = 5000,
+    ) -> bytes | int:
+        self.ctrls.append((bmRequestType, bRequest, wValue, wIndex, data_or_wLength, timeout))
+        if bmRequestType & 0x80:  # IN: return canned reply bytes
+            return self._reply
+        return len(data_or_wLength) if isinstance(data_or_wLength, (bytes, bytearray)) else 0
 
 
 @pytest.fixture(autouse=True)
@@ -118,9 +141,10 @@ def test_enter_discovers_bulk_endpoints() -> None:
         assert cd.bulk_in_endpoint == 0x86
 
 
-def test_read_response_writes_header_then_reads_reply() -> None:
-    """read_response writes the request header to bulk-OUT and returns the
-    reply read from bulk-IN."""
+def test_read_response_primes_bulk_out_then_reads_control_in() -> None:
+    """read_response primes the request header on bulk-OUT, then reads the reply
+    over the CONTROL-IN setup (the bulk-IN → control-IN RECV fix) — NOT bulk-IN.
+    bulk-IN ZLPs on the live device, so no read() is issued at all."""
     reply = bytes([0x85, 0x00, 0x07, 0xDE, 0xAD])
     dev = FakeDevice(reply=reply)
     header = bytes([0x85, 0x00, 0x07])
@@ -128,18 +152,52 @@ def test_read_response_writes_header_then_reads_reply() -> None:
         got = cd.read_response(header, timeout_ms=1234, length=32)
 
     assert got == reply
-    # exactly one write of the header to the OUT endpoint
+    # exactly one write (the prime) to the OUT endpoint
     assert dev.writes == [(0x03, header, 1234)]
-    # exactly one read from the IN endpoint with the requested length
-    assert dev.reads == [(0x86, 32, 1234)]
+    # the RECV is a control-IN, NOT a bulk-IN read
+    assert dev.reads == []
+    s = DEFAULT_RECV_CONTROL_SETUP
+    assert dev.ctrls == [(s.bm_request_type, s.b_request, s.w_value, s.w_index, 32, 1234)]
 
 
-def test_read_response_propagates_usb_error_as_usb_access_error() -> None:
+def test_read_response_takes_setup_fields_but_caller_length() -> None:
+    """The control-IN read takes the setup's request-type/request/value/index,
+    while the read length comes from the caller's kwarg (here the setup's own
+    default length passed through explicitly via with_length)."""
+    setup = RecvControlSetup(0xA1, 0x00, 0x0000, 0x0000, length=120)
+    dev = FakeDevice(reply=b"\x10")
+    with ClaimedDevice(dev, recv_control_setup=setup) as cd:  # type: ignore[arg-type]
+        cd.read_response(b"\x85\x00\x00", length=setup.length)
+    assert dev.ctrls == [(0xA1, 0x00, 0x0000, 0x0000, 120, 5000)]
+
+
+def test_with_length_returns_copy_with_overridden_length() -> None:
+    base = RecvControlSetup(0xA1, 0x01, 0x0000, 0x0000, length=64)
+    bumped = base.with_length(512)
+    assert bumped.length == 512
+    assert (bumped.bm_request_type, bumped.b_request) == (0xA1, 0x01)
+    assert base.length == 64  # original unchanged (frozen)
+
+
+def test_read_response_prime_failure_propagates() -> None:
     class _Boom(FakeDevice):
         def write(self, endpoint: int, data: bytes, timeout: int) -> int:
             raise usb.core.USBError("pipe error")
 
     dev = _Boom()
+    with ClaimedDevice(dev) as cd, pytest.raises(UsbAccessError):  # type: ignore[arg-type]
+        cd.read_response(b"\x85\x00\x00")
+
+
+def test_read_response_control_in_stall_propagates() -> None:
+    """A STALL on the control-IN RECV read surfaces as UsbAccessError (the
+    write prime succeeds; the read is what fails)."""
+
+    class _BoomIn(FakeDevice):
+        def ctrl_transfer(self, *a: object, **k: object) -> bytes | int:
+            raise usb.core.USBError("control STALL")
+
+    dev = _BoomIn()
     with ClaimedDevice(dev) as cd, pytest.raises(UsbAccessError):  # type: ignore[arg-type]
         cd.read_response(b"\x85\x00\x00")
 
@@ -187,3 +245,122 @@ def test_pinning_refuses_when_interface_absent() -> None:
     dev = FakeDevice(config=_maintenance_config())  # only iface 4
     with pytest.raises(UsbAccessError):
         ClaimedDevice(dev, interface=9, bulk_out_ep=0x03, bulk_in_ep=0x86).__enter__()  # type: ignore[arg-type]
+
+
+# ─── EP0 control transfer (the WICReset service-mode transport) ───────────────
+
+
+def test_control_transfer_out_passes_data_and_returns_empty() -> None:
+    """A vendor control-OUT (the captured reset) forwards the exact setup +
+    data to ctrl_transfer and returns b'' (OUT has no read payload)."""
+    dev = FakeDevice()
+    data = bytes([0x00, 0x03, 0x01, 0x03, 0x07])
+    with ClaimedDevice(dev) as cd:  # type: ignore[arg-type]
+        got = cd.control_transfer(0x40, 0x85, 0x0000, 0x0000, data, timeout_ms=1234)
+    assert got == b""
+    assert dev.ctrls == [(0x40, 0x85, 0x0000, 0x0000, data, 1234)]
+
+
+def test_control_transfer_in_returns_reply_bytes() -> None:
+    """A class control-IN (1284-id / status read) passes the read length and
+    returns the device reply bytes."""
+    reply = bytes([0x10, 0x20, 0x30])
+    dev = FakeDevice(reply=reply)
+    with ClaimedDevice(dev) as cd:  # type: ignore[arg-type]
+        got = cd.control_transfer(0xA1, 0x00, 0x0000, 0x0000, 1024)
+    assert got == reply
+    assert dev.ctrls == [(0xA1, 0x00, 0x0000, 0x0000, 1024, 5000)]
+
+
+def test_control_transfer_propagates_usb_error() -> None:
+    class _Boom(FakeDevice):
+        def ctrl_transfer(self, *a: object, **k: object) -> bytes | int:
+            raise usb.core.USBError("pipe stall")
+
+    dev = _Boom()
+    with ClaimedDevice(dev) as cd, pytest.raises(UsbAccessError):  # type: ignore[arg-type]
+        cd.control_transfer(0x40, 0x85, 0x0000, 0x0000, b"\x00")
+
+
+# ─── Send-primed RECV (the WICReset get_keyword / set_session transport) ──────
+
+
+def test_send_and_receive_primes_bulk_out_then_reads_control_in() -> None:
+    """send_and_receive writes the FULL (enciphered) frame to bulk-OUT and reads
+    the reply over the CONTROL-IN setup — the get_keyword shape, RECV over
+    control-IN (not bulk-IN, which ZLPs)."""
+    reply = bytes([0xDE, 0xAD, 0xBE, 0xEF])
+    dev = FakeDevice(reply=reply)
+    # an enciphered set_session/get_keyword frame is longer than a 3-byte header
+    frame = bytes([0x00, 0x12, 0x01, 0x03, 0xE9, 0x3F, 0x0D, 0xA1])
+    with ClaimedDevice(dev) as cd:  # type: ignore[arg-type]
+        got = cd.send_and_receive(frame, timeout_ms=4321, length=16)
+
+    assert got == reply
+    # the enciphered frame is written (primed) on bulk-OUT — SEND half intact
+    assert dev.writes == [(0x03, frame, 4321)]
+    # the RECV is a control-IN, NOT a bulk-IN read
+    assert dev.reads == []
+    s = DEFAULT_RECV_CONTROL_SETUP
+    assert dev.ctrls == [(s.bm_request_type, s.b_request, s.w_value, s.w_index, 16, 4321)]
+
+
+def test_send_and_receive_prime_failure_propagates() -> None:
+    class _Boom(FakeDevice):
+        def write(self, endpoint: int, data: bytes, timeout: int) -> int:
+            raise usb.core.USBError("pipe error")
+
+    dev = _Boom()
+    with ClaimedDevice(dev) as cd, pytest.raises(UsbAccessError):  # type: ignore[arg-type]
+        cd.send_and_receive(b"\x81\x00\x00\x03")
+
+
+def test_send_and_receive_control_in_stall_propagates() -> None:
+    class _BoomIn(FakeDevice):
+        def ctrl_transfer(self, *a: object, **k: object) -> bytes | int:
+            raise usb.core.USBError("control STALL")
+
+    dev = _BoomIn()
+    with ClaimedDevice(dev) as cd, pytest.raises(UsbAccessError):  # type: ignore[arg-type]
+        cd.send_and_receive(b"\x81\x00\x00\x03")
+
+
+# ─── RECV control-IN parameterization + sweep ─────────────────────────────────
+
+
+def test_recv_control_setup_rejects_non_in_request_type() -> None:
+    """RECV is always a read — a setup whose direction bit is clear (OUT) is
+    refused at construction so a probe can never RECV over a control-OUT."""
+    with pytest.raises(UsbAccessError):
+        RecvControlSetup(0x40, 0x85, 0x0000, 0x0000)  # vendor control-OUT
+
+
+def test_default_recv_setup_is_class_get_port_status() -> None:
+    """The default RECV channel is the printer-class GET_PORT_STATUS (0xA1/0x01)
+    — one of the two class control-INs that answered on the live device."""
+    assert DEFAULT_RECV_CONTROL_SETUP.bm_request_type == 0xA1
+    assert DEFAULT_RECV_CONTROL_SETUP.b_request == 0x01
+
+
+def test_swept_setup_drives_the_chosen_control_in() -> None:
+    """Swapping cd.recv_control_setup makes the next RECV use that candidate's
+    setup fields — the probe's sweep mechanism."""
+    cand = RecvControlSetup(0xC0, 0x05, 0x0001, 0x0002, length=20)
+    dev = FakeDevice(reply=b"\xaa\xbb")
+    with ClaimedDevice(dev) as cd:  # type: ignore[arg-type]
+        cd.recv_control_setup = cand
+        cd.send_and_receive(b"\x82\x00\x00\x00\x00", length=20)
+    assert dev.ctrls == [(0xC0, 0x05, 0x0001, 0x0002, 20, 5000)]
+
+
+def test_sweep_candidates_rank_class_reads_first() -> None:
+    """The sweep order puts the two answered class control-INs first, then the
+    vendor 0xC0/0xC1 scan; include_vendor=False restricts to the class reads."""
+    cands = sweep_recv_control_setups()
+    assert cands == RECV_CONTROL_CANDIDATES
+    assert (cands[0].bm_request_type, cands[0].b_request) == (0xA1, 0x01)
+    assert (cands[1].bm_request_type, cands[1].b_request) == (0xA1, 0x00)
+    assert all(c.bm_request_type & 0x80 for c in cands)  # all are control-IN
+    class_only = sweep_recv_control_setups(include_vendor=False)
+    assert all(c.bm_request_type == 0xA1 for c in class_only)
+    assert len(class_only) == 2

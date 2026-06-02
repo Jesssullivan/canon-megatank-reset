@@ -3,6 +3,14 @@ title = "canon-megatank-reset"
 [extend]
 useDefault = true
 
+# Reverse-engineering evidence: the cipher hex in the RE docs and the paper are
+# recovered protocol findings (functor-3 envelope / keystream bytes, captured
+# wire frames), NOT credentials. Scope the allowlist to those paths ONLY — the
+# rest of the tree keeps gitleaks' default high-entropy + provider rules. (A
+# blanket hex regex is deliberately NOT used so a real secret can't hide as hex.)
 [[allowlists]]
-description = "No repository-specific allowlist entries yet."
-paths = ["^$"]
+description = "RE cipher hex in docs/research and docs/paper are findings, not secrets."
+paths = [
+  '''docs/research/.*\.md$''',
+  '''docs/paper/.*''',
+]

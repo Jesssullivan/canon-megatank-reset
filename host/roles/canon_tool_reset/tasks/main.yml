@@ -1,0 +1,212 @@
+---
+# canon_tool_reset — install the VALIDATED native 5B00 reset tool + a GATED,
+# manual-trigger systemd unit on a fleet host. Idempotent. Safe to re-run.
+#
+# CONTRACT: this role installs + scaffolds ONLY. It NEVER drives a reset.
+# Triggering is a deliberate, manual `systemctl start canon-reset@<serial>` by
+# an operator standing at the printer (the commit is a physical power-button
+# press — see README.md + the unit's ExecStartPost). All in-code safety gates
+# (UUID isolation, SSOT validation status, mandatory EEPROM dump, per-unit
+# write budget, lockfile) remain authoritative regardless of this role.
+
+# ─── Hard refuse-to-deploy gate for an --execute unit ─────────────────────────
+# We will not template `--execute` into the unit unless the operator BOTH opts
+# in AND acknowledges the manual power-button commit step. This is belt-and-
+# braces on top of the in-code gates — it keeps an --execute unit from ever
+# silently landing on a fleet host.
+
+- name: 'gate: refuse to deploy an --execute unit without the commit acknowledgement'
+  ansible.builtin.assert:
+    that:
+      - 'not canon_tool_reset_allow_execute_unit or canon_tool_reset_commit_acknowledged'
+    fail_msg: >-
+      canon_tool_reset_allow_execute_unit is true but
+      canon_tool_reset_commit_acknowledged is false. An --execute unit MUST
+      acknowledge the manual clean-power-button commit step. Set
+      canon_tool_reset_commit_acknowledged=true (the operator confirms they will
+      power-cycle the printer by hand after the clear), or leave the unit in its
+      default DRY-RUN form.
+    quiet: true
+  tags: [canon-tool-reset, always]
+
+# ─── Service account + groups ─────────────────────────────────────────────────
+
+- name: 'group: printstack (udev grants 04a9 USB access to this group)'
+  ansible.builtin.group:
+    name: '{{ canon_tool_reset_group }}'
+    state: present
+    system: true
+  tags: [canon-tool-reset, groups]
+
+- name: 'user: unprivileged {{ canon_tool_reset_user }} service account'
+  ansible.builtin.user:
+    name: '{{ canon_tool_reset_user }}'
+    system: true
+    create_home: false
+    shell: /sbin/nologin
+    groups: '{{ canon_tool_reset_group }}'
+    append: true
+  tags: [canon-tool-reset, groups]
+
+# ─── udev: USB device access for the unprivileged unit ────────────────────────
+
+- name: 'udev: install Canon reset USB rule (1865 print + 12fe service mode)'
+  ansible.builtin.copy:
+    src: 60-canon-reset.rules
+    dest: /etc/udev/rules.d/60-canon-reset.rules
+    owner: root
+    group: root
+    mode: '0644'
+  notify: reload udev
+  tags: [canon-tool-reset, usb]
+
+# ─── Tooling: uv (isolated venv builder; matches the dev one-env contract) ────
+
+- name: 'uv: ensure the uv binary is present'
+  ansible.builtin.stat:
+    path: '{{ canon_tool_reset_uv_bin }}'
+  register: canon_tool_reset_uv_stat
+  tags: [canon-tool-reset, tool]
+
+- name: 'uv: install uv (standalone) if missing'
+  # uv ships a standalone installer; we drop it at the configured path so the
+  # systemd-managed venv build is reproducible and root-owned.
+  ansible.builtin.shell: |
+    set -euo pipefail
+    curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$(dirname '{{ canon_tool_reset_uv_bin }}')" sh
+  args:
+    creates: '{{ canon_tool_reset_uv_bin }}'
+  when: not canon_tool_reset_uv_stat.stat.exists
+  tags: [canon-tool-reset, tool]
+
+# ─── Source: sync the repo to the host ────────────────────────────────────────
+
+- name: 'src: ensure install dir exists'
+  ansible.builtin.file:
+    path: '{{ canon_tool_reset_install_dir }}'
+    state: directory
+    owner: root
+    group: '{{ canon_tool_reset_group }}'
+    mode: '0755'
+  tags: [canon-tool-reset, src]
+
+- name: 'src: rsync the controller checkout to the host'
+  ansible.posix.synchronize:
+    src: '{{ canon_tool_reset_local_repo }}/'
+    dest: '{{ canon_tool_reset_install_dir }}/'
+    delete: true
+    recursive: true
+    rsync_opts:
+      - '--exclude=.git'
+      - '--exclude=.venv'
+      - '--exclude=__pycache__'
+      - '--exclude=captures'
+  when: canon_tool_reset_source == 'rsync'
+  notify: rebuild canon-tool venv
+  tags: [canon-tool-reset, src]
+
+- name: 'src: clone/update the repo from git (air-gapped fleets prefer rsync)'
+  ansible.builtin.git:
+    repo: '{{ canon_tool_reset_git_repo }}'
+    dest: '{{ canon_tool_reset_install_dir }}'
+    version: '{{ canon_tool_reset_git_version }}'
+  when: canon_tool_reset_source == 'git'
+  notify: rebuild canon-tool venv
+  tags: [canon-tool-reset, src]
+
+# ─── Build: isolated venv with the console script ─────────────────────────────
+
+- name: 'venv: build the isolated tool venv (uv)'
+  # Idempotent: uv venv is a no-op if present; pip install -e re-resolves only on
+  # changed metadata. The rebuild handler forces a re-install after a src sync.
+  ansible.builtin.command:
+    cmd: '{{ canon_tool_reset_uv_bin }} venv {{ canon_tool_reset_venv_dir }} --python {{ canon_tool_reset_python }}'
+    creates: '{{ canon_tool_reset_venv_dir }}/bin/python'
+  tags: [canon-tool-reset, venv]
+
+- name: 'venv: install the canon-megatank console script (editable)'
+  ansible.builtin.command:
+    cmd: '{{ canon_tool_reset_uv_bin }} pip install --python {{ canon_tool_reset_venv_dir }}/bin/python -e .'
+    chdir: '{{ canon_tool_reset_install_dir }}'
+  register: canon_tool_reset_pip
+  changed_when: "'Installed' in canon_tool_reset_pip.stdout or 'Built' in canon_tool_reset_pip.stdout"
+  tags: [canon-tool-reset, venv]
+
+# ─── Runtime state dirs (mirror src/canon_megatank/lockfile.py defaults) ──────
+# systemd also provisions StateDirectory/RuntimeDirectory per unit, but we
+# pre-create the roots so manual `just`/CLI runs as the service user also work.
+
+- name: 'state: create persistent + runtime + log dirs'
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: directory
+    owner: '{{ canon_tool_reset_user }}'
+    group: '{{ canon_tool_reset_group }}'
+    mode: '0750'
+  loop:
+    - '{{ canon_tool_reset_state_dir }}'   # /var/lib/canon-tool — write budget
+    - '{{ canon_tool_reset_log_dir }}'     # /var/log/canon-tool
+  tags: [canon-tool-reset, state]
+
+- name: 'state: tmpfiles.d entry for the /run lockfile dir (survives reboots)'
+  ansible.builtin.copy:
+    dest: /etc/tmpfiles.d/canon-tool.conf
+    content: |
+      # {{ ansible_managed }}
+      # Recreate the canon-tool lockfile dir on boot (src/canon_megatank/lockfile.py
+      # DEFAULT_RUN_DIR = /run/canon-tool). systemd RuntimeDirectory= also covers
+      # the per-unit case; this covers manual CLI runs as the service user.
+      d {{ canon_tool_reset_run_dir }} 0750 {{ canon_tool_reset_user }} {{ canon_tool_reset_group }} -
+    owner: root
+    group: root
+    mode: '0644'
+  notify: apply tmpfiles
+  tags: [canon-tool-reset, state]
+
+# ─── systemd: the GATED, manual-trigger template unit ─────────────────────────
+
+- name: 'systemd: install the canon-reset@.service template unit'
+  ansible.builtin.template:
+    src: canon-reset@.service.j2
+    dest: /etc/systemd/system/canon-reset@.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: reload systemd
+  tags: [canon-tool-reset, systemd]
+
+- name: 'systemd: flush handlers so the unit is registered before any trigger'
+  ansible.builtin.meta: flush_handlers
+  tags: [canon-tool-reset, systemd]
+
+# ─── Optional, explicit, GUARDED trigger (default OFF) ────────────────────────
+# This role's contract is install + scaffold only. We expose a trigger ONLY
+# behind canon_tool_reset_trigger_now (default false) so the path exists for a
+# fully-attended run, but it is NEVER on by default and is independent of the
+# unit's dry-run/execute shape (the in-code gates still decide).
+
+- name: 'trigger (GUARDED): start canon-reset@{{ canon_tool_reset_unit_instance }} now'
+  ansible.builtin.systemd:
+    name: 'canon-reset@{{ canon_tool_reset_unit_instance }}.service'
+    state: started
+  when: canon_tool_reset_trigger_now | bool
+  tags: [canon-tool-reset, trigger, never]
+
+# ─── Operator hand-off note ───────────────────────────────────────────────────
+
+- name: 'note: how to trigger + the MANDATORY manual commit step'
+  ansible.builtin.debug:
+    msg: |
+      canon_tool_reset deployed to {{ inventory_hostname }} (install + scaffold only).
+      Unit: canon-reset@.service (template). DRY-RUN={{ not (canon_tool_reset_allow_execute_unit and canon_tool_reset_commit_acknowledged) }}.
+
+      To preview (dry-run, no USB):
+        systemctl start canon-reset@{{ canon_tool_reset_unit_instance }}
+        journalctl -u canon-reset@{{ canon_tool_reset_unit_instance }} -n 40
+
+      MANDATORY COMMIT (no automation can do this): after a successful --execute
+      clear, the operator MUST release the USB handle (the unit exiting does
+      that) and then perform a CLEAN POWER-BUTTON SHUTDOWN of the printer so the
+      printhead parks and the cleared counter flushes to EEPROM. An abrupt
+      UNPLUG does NOT commit the reset.
+  tags: [canon-tool-reset]

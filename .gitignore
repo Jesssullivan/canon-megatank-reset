@@ -58,3 +58,18 @@ canon-tool-staging/
 /tmp-captures/
 *.pcapng
 !captures/*.pcapng.gz
+
+# Rendered diagrams — sources (docs/diagrams/*.{mmd,dot}) are SSOT; SVG/PNG are
+# build artifacts from `just diagrams`.
+docs/diagrams/*.svg
+docs/diagrams/*.png
+
+# LaTeX paper build intermediates (the .pdf is committed by build-paper.yml on
+# main; the .tex/.bib/.cls/.bst/.sty sources are tracked). Ignore stray aux files
+# from a local `tectonic --keep-intermediates` run.
+docs/paper/*.aux
+docs/paper/*.bbl
+docs/paper/*.blg
+docs/paper/*.log
+docs/paper/*.out
+docs/paper/*.synctex.gz

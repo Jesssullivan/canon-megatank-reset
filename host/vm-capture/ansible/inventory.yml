@@ -10,7 +10,11 @@ all:
       ansible_connection: winrm
       ansible_user: cap
       ansible_password: canon-cap
-      ansible_winrm_transport: basic
+      # NTLM seals the WS-Man payload, so it works over plain HTTP:5985 without
+      # the Service/AllowUnencrypted flag — which Win11 refuses to set while the
+      # passt-NAT NIC sits on the (unidentifiable) Public network profile. Needs
+      # LocalAccountTokenFilterPolicy=1 in the guest for the local 'cap' admin.
+      ansible_winrm_transport: ntlm
       ansible_winrm_scheme: http
       ansible_winrm_server_cert_validation: ignore
       ansible_python_interpreter: "{{ ansible_playbook_python }}"

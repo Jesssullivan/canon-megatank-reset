@@ -1,0 +1,73 @@
+---
+# Defaults for canon_tool_reset — fleet deploy of the VALIDATED native
+# libusb 5B00 absorber-reset tool. Override in inventory/group_vars or via
+# `ansible-playbook -e ...`.
+#
+# This role NEVER drives a reset on its own. It installs the tool + a GATED,
+# manual-trigger systemd unit. The unit is DRY-RUN by default; an --execute
+# run still hard-stops on the in-code gates (UUID isolation, SSOT validation
+# status, mandatory EEPROM dump, per-unit write budget, lockfile). Promotion
+# to a real clear is a deliberate, per-physical-unit, pads-installed operator
+# decision — see README.md.
+
+# ── Install location + source ────────────────────────────────────────────────
+# The tool is the in-repo Python package. On a fleet host we install it as an
+# isolated venv under /opt so the systemd unit has a stable, root-owned
+# interpreter independent of any user's nix profile.
+canon_tool_reset_install_dir: /opt/canon-megatank-reset
+canon_tool_reset_venv_dir: '{{ canon_tool_reset_install_dir }}/.venv'
+
+# Where the repo is synced FROM. Default: push the controller's checkout to the
+# host (idempotent rsync via ansible.posix.synchronize). Set to a git URL +
+# canon_tool_reset_source: git to clone instead (air-gapped fleets prefer rsync).
+canon_tool_reset_source: rsync            # rsync | git
+canon_tool_reset_local_repo: '{{ playbook_dir }}/..'   # controller-side repo root
+canon_tool_reset_git_repo: 'https://github.com/tinyland-inc/canon-megatank-reset'
+canon_tool_reset_git_version: main
+
+# uv builds the isolated venv (matches the dev contract: one env, uv-managed).
+# Installed into the venv profile; the unit calls the venv's console script.
+canon_tool_reset_uv_bin: /usr/local/bin/uv
+canon_tool_reset_python: /usr/bin/python3
+
+# ── Runtime state dirs (must match src/canon_megatank/lockfile.py) ────────────
+# Write-budget persistence (survives reboots) + the in-flight-op lockfile.
+canon_tool_reset_state_dir: /var/lib/canon-tool      # DEFAULT_STATE_DIR
+canon_tool_reset_run_dir: /run/canon-tool            # DEFAULT_RUN_DIR
+canon_tool_reset_log_dir: /var/log/canon-tool
+
+# The unprivileged service account that owns state + runs the unit. Member of
+# the printstack group (udev grants 04a9 USB device access to that group).
+canon_tool_reset_user: canon-tool
+canon_tool_reset_group: printstack
+
+# ── Device / fleet identity ───────────────────────────────────────────────────
+# Service-mode product id the G6020 enumerates as (0x1865 = normal mode).
+canon_tool_reset_product_id: '0x12fe'
+# Waste row the G6000 family clears.
+canon_tool_reset_region: common
+
+# Per-host unit instance name. The systemd unit is a TEMPLATE
+# (canon-reset@.service); %i is the unit/serial label so each physical printer
+# gets its own write-budget file + lockfile + journal stream. Default to the
+# inventory hostname; override per-host with a real back-panel serial.
+canon_tool_reset_unit_instance: '{{ inventory_hostname }}'
+
+# ── SAFETY: execute gating ─────────────────────────────────────────────────────
+# DRY-RUN by default. We deliberately do NOT template --execute into the unit.
+# Even if an operator flips this to true, the in-code gates still hard-stop:
+#   - SSOT status must be verified-captured (currently derived-unvalidated), OR
+#   - canon_tool_reset_accept_derived: true (one-run override, recorded loudly),
+#   - mandatory EEPROM dump (eeprom_dump_done) — accept_derived does NOT bypass,
+#   - per-unit write budget + lockfile.
+# This role will REFUSE to deploy an --execute unit unless the operator BOTH
+# sets canon_tool_reset_allow_execute_unit AND acknowledges the commit step.
+canon_tool_reset_allow_execute_unit: false
+canon_tool_reset_accept_derived: false
+canon_tool_reset_commit_acknowledged: false
+
+# Drive a single fleet host's clear over SSH at deploy time. ALWAYS false here.
+# This role's contract is "install + scaffold only — never trigger". Triggering
+# is a separate, manual `systemctl start canon-reset@<serial>` by the operator
+# standing at the printer (the commit is a physical power-button press).
+canon_tool_reset_trigger_now: false

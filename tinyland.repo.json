@@ -1,0 +1,48 @@
+{
+	"$schema": "https://raw.githubusercontent.com/tinyland-inc/site.scaffold/main/docs/schemas/tinyland-repo-manifest.schema.json",
+	"schema_version": 1,
+	"repo": {
+		"name": "canon-megatank-reset",
+		"github": "tinyland-inc/canon-megatank-reset",
+		"description": "Native, key-free, cloud-free Canon MegaTank 5B00 waste-ink/ink-absorber counter reset and maintenance-protocol reverse engineering. Role: device-maintenance-tool / protocol-re-and-native-tool (mapped to the schema's org-utility primary_role; see taxonomy note).",
+		"linear": {
+			"initiative": "faa7f1b9-6d0f-4201-9531-8f8a15cd241b"
+		}
+	},
+	"taxonomy": {
+		"primary_role": "org-utility",
+		"layers": ["org-wide-repo-contract"]
+	},
+	"contracts": {
+		"agent_contract": "AGENTS.md",
+		"just": "Justfile",
+		"nix": "flake.nix",
+		"github_actions": ".github/workflows",
+		"secrets_scan": "gitleaks",
+		"conformance": "just check"
+	},
+	"boundaries": {
+		"owns_runtime_backend": false,
+		"owns_auth": false,
+		"owns_payments": false,
+		"owns_activitypub_delivery": false,
+		"owns_live_broker_fetch": false,
+		"owns_static_projection_ingest": false,
+		"owns_gitops_apply": false,
+		"owns_cloudflare_mutation": false,
+		"owns_bazel_module_authority": false
+	},
+	"authorities": {
+		"ci_templates": "tinyland-inc/ci-templates",
+		"cache_rbe_authority": "tinyland-inc/GloriousFlywheel",
+		"tofu_module_authority": "tinyland-inc/GloriousFlywheel",
+		"package_registry": "tinyland-inc/bazel-registry"
+	},
+	"supply_chain": {
+		"sbom": {
+			"status": "not-required",
+			"formats": [],
+			"notes": "This repository publishes a native device-maintenance tool, reverse-engineering evidence, and an academic paper rather than a deployed application artifact. SBOM publication can move to recipe-available via ci-templates if the native tool is ever packaged for fleet release."
+		}
+	}
+}

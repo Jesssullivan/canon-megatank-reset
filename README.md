@@ -14,10 +14,28 @@ This project recovers the reset protocol from those tools (as **RE oracles**) an
 reimplements it as an **open, native Linux pyusb tool** — no Wine, no per-unit keys, no
 vendor cloud — behind strict safety gates, deployable across a fleet via Ansible.
 
-> **Status:** early. Protocol RE in progress (transport + wire framing + dispatch
-> recovered; reset payload/key derivation is the open target). The native reset path is
-> gated behind validation against a real captured reset. See `docs/adr/0007` and the
-> tranche plan. **Do not point this at a printer yet.**
+> **Status:** the native, key-free, cloud-free 5B00 reset is **recovered and
+> hardware-validated.** The usbprint vendor transport, the session protocol, and the
+> write cipher are all cracked (**23/23** byte-exact against a genuine captured frame),
+> and the native libusb clear **cleared 5B00 on a real G6020** — the printer rebooted
+> out of service mode to normal `04a9:1865` after a clean power-button shutdown. The
+> tool is **dry-run by default**; `--execute` is gated behind test-unit UUID isolation,
+> a mandatory pre-flight EEPROM dump, a persisted write budget, and a lockfile, and
+> while the SSOT status is `derived-unvalidated` it hard-stops unless you also pass
+> `--accept-derived` for a single run on the locked debug unit. **This is a debug/RE
+> tool for hardware you own, with waste pads installed** — service the absorber before
+> resetting. It is not a press-button-anywhere resetter. Full validated procedure:
+> `docs/runbook/g6020-native-reset.md`.
+
+## Fixing another Canon? Start with the field guide
+
+Unbricking a **different** Canon (any PIXMA / MegaTank / G-series stuck on
+**5B00 / "waste ink absorber full"** or another service code)? Read the
+model-agnostic [**Canon service-mode RE field guide**](docs/research/canon-service-mode-field-guide.md)
+— it generalizes the validated G6020 work (service-mode entry, the vendor
+control-transfer transport, the session/keyword handshake, the EEPROM counter and
+commit-on-power-button behavior, the cipher to expect, and the usbmon↔Frida↔Ghidra
+method) into a reusable guide for *your* model, with links to the concrete evidence.
 
 ## What's here
 
@@ -45,6 +63,18 @@ The lead test unit is the only printer that may receive a write until the protoc
 locked. Every write passes: test-unit UUID isolation, a persisted write budget, a
 mandatory pre-flight EEPROM dump, a ping-suite baseline check, and a lockfile guard. See
 `AGENTS.md` → Safety Model.
+
+## License
+
+Dual-licensed by split:
+
+- **Code** (everything outside `docs/`) — **zlib/libpng License** (SPDX: `Zlib`).
+  See [`LICENSE`](LICENSE).
+- **Documentation + the academic paper** (`docs/`, including `docs/paper/`) —
+  **Creative Commons Attribution 4.0 International** (`CC-BY-4.0`). See
+  [`LICENSE-docs`](LICENSE-docs).
+
+Copyright (c) 2026 Jess Sullivan.
 
 ## Lineage & interop
 

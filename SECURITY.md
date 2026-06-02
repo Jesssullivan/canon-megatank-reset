@@ -27,7 +27,40 @@ tracked (`.gitignore` enforces this). RE is for interoperability/repair.
 No secrets in the repo. The WICReset key and any host become-passwords live in the
 operator's sops/secret store and are loaded via `direnv` — never committed.
 
-## Reporting
+## Supported versions
 
-Open a private security advisory on the canonical repo, or contact the maintainer
-(jess@sulliwood.org).
+Security fixes land on `main` and ship in the next tagged release (see `VERSION`
+/ `CHANGELOG.md`). Only the latest release is supported; please reproduce on
+`main` before reporting.
+
+## Reporting a vulnerability (coordinated disclosure)
+
+Report privately — **do not** open a public issue for a security problem:
+
+- Preferred: open a private GitHub Security Advisory on the canonical repo
+  (Security → Advisories → "Report a vulnerability").
+- Or email the maintainer: **jess@sulliwood.org**.
+
+Please include the affected version/commit, a reproduction, and impact.
+
+Coordinated-disclosure timeline:
+
+- **48 h** — acknowledgement of your report.
+- **90 days** — target window to ship a fix before public disclosure. We will
+  agree an embargo with you and credit you in the advisory unless you prefer
+  otherwise.
+
+### In scope
+
+The reset tooling, the protocol model, the host playbooks/roles, and CI/secret
+handling in this repo. Since this is a **right-to-repair** project, "it lets a
+device owner reset a counter they own" is the intended behavior, not a
+vulnerability.
+
+### Out of scope
+
+- Reports that amount to "this enables repair/interoperability" — that is the
+  point (see `ETHICS/RIGHT-TO-REPAIR.md`, `INTEROP.md`).
+- Vulnerabilities in Canon firmware, Canon Service Tool, or WICReset
+  themselves — report those to the respective vendors.
+- Findings against forks or modified copies.

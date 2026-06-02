@@ -1,0 +1,354 @@
+% references.bib — canon-megatank-reset paper
+% BibTeX, IEEEtran style. Double braces protect acronym/model casing.
+% Every entry is grounded in the in-repo SOTA docs (docs/research/sota-*.md)
+% and confirmed against a primary source (DOI / publisher / canonical repo).
+% No fabricated citations or results; tool entries cite the upstream project.
+
+% ─────────────────────────────────────────────────────────────────────────
+% Prior Canon reverse engineering
+% ─────────────────────────────────────────────────────────────────────────
+@misc{contextis-canon,
+  title  = {{Hacking Canon PIXMA Printers --- Doomed Encryption}},
+  author = {{Context Information Security}},
+  year   = {2016},
+  url    = {https://www.contextis.com/en/blog/hacking-canon-pixma-printers-doomed-encryption},
+  note   = {Foundational Canon firmware-update crypto RE; the "doomed encryption"
+            lineage the pixma firmware-unpack tools build on}
+}
+
+@misc{leecher-pixma,
+  title  = {pixma: Canon {PIXMA} Firmware Unpacking Tools},
+  author = {{leecher1337}},
+  year   = {2020},
+  url    = {https://github.com/leecher1337/pixma},
+  note   = {Firmware-unpack lineage (pixma\_decrypt known-plaintext XOR,
+            pixma\_unpack Thumb decompressor, dec\_sdata). No reset/service-mode
+            code; no LICENSE file. The work this paper extends conceptually}
+}
+
+@misc{jesssullivan-pixma,
+  title  = {pixma (fork): reproducible build tooling},
+  author = {{J. Sullivan}},
+  year   = {2026},
+  url    = {https://github.com/jesssullivan/pixma},
+  note   = {Operator fork: adds a reproducible Makefile + portability fixes over
+            leecher1337/pixma; no reset capability added}
+}
+
+@misc{sane-pixma,
+  title  = {{SANE} pixma backend (sane-pixma(5))},
+  author = {{SANE Project}},
+  year   = {2024},
+  url    = {https://gitlab.com/sane-project/backends},
+  note   = {Canon scanner command backend (bulk channel). Cited only as
+            protocol-lineage prior art for Canon command framing; no waste-ink
+            or maintenance surface}
+}
+
+@misc{bch-canon-servicetool,
+  title  = {Developing an Open-Source Alternative to {Canon} Service Tool},
+  author = {{BCH Technologies}},
+  year   = {2023},
+  url    = {https://bchtechnologies.com/blogs/blog/developing-an-opensource-alternative-to-canon-service-tool},
+  note   = {Community write-up of USB-control-transfer sniffing toward an
+            open Canon Service Tool alternative; the capture-and-correlate
+            ideation this work executes for the G-series}
+}
+
+% ─────────────────────────────────────────────────────────────────────────
+% Epson waste-counter / open-RE prior art (the transferable lineage)
+% ─────────────────────────────────────────────────────────────────────────
+@misc{reink-elena,
+  title  = {reink: {Epson} ink-pad / waste-counter reset},
+  author = {{lion-simba (Elena)}},
+  year   = {2012},
+  url    = {https://github.com/lion-simba/reink},
+  note   = {IEEE-1284.4 (D4) EEPROM read/write to Epson maintenance counters;
+            the canonical open Epson waste-reset reference}
+}
+
+@misc{ircama-epson-print-conf,
+  title  = {epson\_print\_conf: {Epson} printer configuration / waste reset via {SNMP}},
+  author = {{Ircama}},
+  year   = {2024},
+  url    = {https://github.com/Ircama/epson_print_conf},
+  note   = {EPSON-CTRL SNMP read/write-key frames, multi-byte LE counter with
+            divider, temporary-vs-permanent commit semantics}
+}
+
+@misc{zedeldi-epson-snmp,
+  title  = {epson-printer-snmp: {Epson} waste-ink reset over {SNMP}},
+  author = {{Zedeldi}},
+  year   = {2023},
+  url    = {https://github.com/Zedeldi/epson-printer-snmp},
+  note   = {Parameters derived by sniffing WICReset --- the same
+            capture-and-correlate method used in this work}
+}
+
+@misc{rxnaison-epson,
+  title  = {Epson-Waste-Reset: a free, native, open-source {Epson} waste-ink
+            pad counter reset},
+  author = {{RxNaison}},
+  year   = {2024},
+  url    = {https://github.com/RxNaison/Epson-Waste-Reset},
+  note   = {Native C++ tool that builds IEEE-1284.4 (D4) EEPROM-write packets
+            per model over USB and zeroes the waste counter; the
+            native-key-free fleet-tool pattern this work mirrors for Canon}
+}
+
+@misc{atufi-reinkpy,
+  title  = {reinkpy: {Python} {Epson} ink-pad reset},
+  author = {{atufi}},
+  year   = {2023},
+  url    = {https://gitlab.com/atufi/reinkpy},
+  note   = {Python port of the Epson D4/SNMP reset lineage}
+}
+
+% ─────────────────────────────────────────────────────────────────────────
+% Peer-reviewed consumable-DRM / printer security
+% ─────────────────────────────────────────────────────────────────────────
+@article{cybowski2022drm,
+  title   = {Methods of implementation and operation of hardware {DRM}
+             protection on the example of printer cartridges},
+  author  = {Cybowski, Wojciech},
+  journal = {Technical Sciences},
+  volume  = {25},
+  pages   = {117--137},
+  year    = {2022},
+  doi     = {10.31648/ts.7634},
+  url     = {https://czasopisma.uwm.edu.pl/index.php/ts/article/view/7634},
+  note    = {Peer-reviewed capture-diff-interpret-reset writeup for consumable
+            DRM: modifies the on-chip data to reset protection and validates by
+            observing the reported consumable level change}
+}
+
+@inproceedings{cui2013firmware,
+  title     = {When Firmware Modifications Attack: A Case Study of Embedded
+               Exploitation},
+  author    = {Cui, Ang and Costello, Michael and Stolfo, Salvatore J.},
+  booktitle = {Proceedings of the Network and Distributed System Security
+               Symposium (NDSS)},
+  year      = {2013},
+  doi       = {10.7916/D8P55NKB},
+  note      = {Canonical printer-firmware RE: HP LaserJet RFU format reversed
+               and persistently modified --- the upstream of printer-RE work}
+}
+
+@inproceedings{mueller2017sok,
+  title     = {{SoK}: Exploiting Network Printers},
+  author    = {M{\"u}ller, Jens and Mladenov, Vladislav and Somorovsky, Juraj
+               and Schwenk, J{\"o}rg},
+  booktitle = {Proceedings of the IEEE Symposium on Security and Privacy (S\&P)},
+  pages     = {213--230},
+  year      = {2017},
+  doi       = {10.1109/SP.2017.47},
+  note      = {Systematization of printer attacks and the PRET toolkit;
+               formalizes NVRAM read/write at a named address --- the abstract
+               form of the service-mode write replayed here}
+}
+
+@inproceedings{mueller2018postscript,
+  title     = {{PostScript} Undead: Pwning the Web with a 35 Years Old Language},
+  author    = {M{\"u}ller, Jens and Mladenov, Vladislav and Felsch, Dennis and
+               Schwenk, J{\"o}rg},
+  booktitle = {Proceedings of the 21st International Symposium on Research in
+               Attacks, Intrusions, and Defenses (RAID)},
+  pages     = {603--622},
+  year      = {2018},
+  doi       = {10.1007/978-3-030-00470-5_28},
+  note      = {Language-level PostScript abuse incl.\ persistent state; supporting
+              context for durable printer-side state access}
+}
+
+@article{shwartz2018iot,
+  title   = {Reverse Engineering {IoT} Devices: Effective Techniques and Methods},
+  author  = {Shwartz, Omer and Mathov, Yair and Bohadana, Michael and
+             Elovici, Yuval and Oren, Yossi},
+  journal = {IEEE Internet of Things Journal},
+  volume  = {5},
+  number  = {6},
+  pages   = {4965--4976},
+  year    = {2018},
+  doi     = {10.1109/JIOT.2018.2875240},
+  note    = {General bus-sniff / dump / diff method spine for chip-and-firmware
+            RE, applied here to the service-mode counter hunt}
+}
+
+@article{bakhshi2024firmware,
+  title   = {A Review of {IoT} Firmware Vulnerabilities and Auditing Techniques},
+  author  = {Bakhshi, Taimur and Ghita, Bogdan and Kuzminykh, Ievgeniia},
+  journal = {Sensors},
+  volume  = {24},
+  number  = {2},
+  pages   = {708},
+  year    = {2024},
+  doi     = {10.3390/s24020708},
+  note    = {Survey of firmware-RE / auditing tooling and the dump-diff
+            workflow; taxonomy backdrop for the device-side counter hunt}
+}
+
+% ─────────────────────────────────────────────────────────────────────────
+% USB protocol-RE methodology
+% ─────────────────────────────────────────────────────────────────────────
+@misc{usb-printer-class,
+  title  = {{Universal Serial Bus} Device Class Definition for Printing
+            Devices, v1.1},
+  author = {{USB Implementers Forum}},
+  year   = {2000},
+  url    = {https://www.usb.org/document-library/printer-class-version-11},
+  note   = {The printer-class interface our service-mode device exposes
+            (04a9:12fe, iface 0); GET\_DEVICE\_ID / GET\_PORT\_STATUS}
+}
+
+@misc{wireshark-usb,
+  title  = {{Wireshark} {CaptureSetup}/{USB}},
+  author = {{Wireshark Foundation}},
+  year   = {2024},
+  url    = {https://wiki.wireshark.org/CaptureSetup/USB},
+  note   = {usbmon capture + URB dissection used for the wire ground truth}
+}
+
+@misc{linux-usbmon,
+  title  = {The {usbmon}: {USB} monitoring framework},
+  author = {{Linux Kernel Documentation}},
+  year   = {2024},
+  url    = {https://www.kernel.org/doc/html/latest/usb/usbmon.html},
+  note   = {Host-side USB wire capture (control + bulk URBs)}
+}
+
+@misc{qemu-usb-pcap,
+  title  = {{QEMU} {USB} device pcap tracing},
+  author = {{QEMU Project}},
+  year   = {2024},
+  url    = {https://www.qemu.org/docs/master/system/devices/usb.html},
+  note   = {Per-device passthrough pcap at the VM boundary}
+}
+
+@misc{libusb,
+  title  = {libusb: a cross-platform user-space {USB} library},
+  author = {{libusb developers}},
+  year   = {2024},
+  url    = {https://libusb.info/},
+  note   = {The native EP0 control-transfer transport of the reproduction tool}
+}
+
+% ─────────────────────────────────────────────────────────────────────────
+% Dynamic instrumentation / static RE tooling
+% ─────────────────────────────────────────────────────────────────────────
+@misc{frida,
+  title  = {{Frida}: Dynamic instrumentation toolkit},
+  author = {{Ole Andr{\'e} V. Ravn{\aa}s and contributors}},
+  year   = {2024},
+  url    = {https://frida.re/},
+  note   = {Used to hook DeviceIoControl and to patch the three cloud-licensing
+            JZ gates (74 -> EB) for genuine-frame ground-truth capture}
+}
+
+@misc{ghidra,
+  title  = {{Ghidra} Software Reverse Engineering Framework},
+  author = {{National Security Agency}},
+  year   = {2024},
+  url    = {https://ghidra-sre.org/},
+  note   = {Decompile of printerpotty.exe (WICReset) and usbprint.sys}
+}
+
+@misc{ioctlhunter,
+  title  = {{IoctlHunter}: hooking {DeviceIoControl}},
+  author = {{Z4kSec}},
+  year   = {2023},
+  url    = {https://github.com/Z4kSec/IoctlHunter},
+  note   = {Reference pattern for the DeviceIoControl in/out-buffer hook}
+}
+
+@misc{unicorn-engine,
+  title  = {{Unicorn} {CPU} emulator framework},
+  author = {{Quynh, Nguyen Anh and Vu, Dang Hoang}},
+  year   = {2024},
+  url    = {https://www.unicorn-engine.org/},
+  note   = {Emulation cross-check for the functor key-schedule (optional)}
+}
+
+% ─────────────────────────────────────────────────────────────────────────
+% Cryptographic primitive observed in the template container
+% ─────────────────────────────────────────────────────────────────────────
+@misc{openssl-des,
+  title  = {{OpenSSL} libcrypto: {DES}/{3DES} (EDE3-CBC)},
+  author = {{OpenSSL Project}},
+  year   = {2024},
+  url    = {https://www.openssl.org/},
+  note   = {The APP.BIN template container is 3DES-EDE3-CBC with all-zero key/IV
+            (stock libdes tables observed in the decompile)}
+}
+
+% ─────────────────────────────────────────────────────────────────────────
+% Right-to-repair / cloud-gating framing
+% ─────────────────────────────────────────────────────────────────────────
+@book{anderson2020security,
+  title     = {Security Engineering: A Guide to Building Dependable Distributed
+               Systems},
+  author    = {Anderson, Ross},
+  edition   = {3},
+  publisher = {Wiley},
+  year      = {2020},
+  note      = {DRM / accessory-control chapter; economics of tying}
+}
+
+@inproceedings{anderson2003crypto,
+  title     = {Cryptography and Competition Policy: Issues with `Trusted
+               Computing'},
+  author    = {Anderson, Ross},
+  booktitle = {Proceedings of the 22nd Annual ACM Symposium on Principles of
+               Distributed Computing (PODC)},
+  pages     = {3--10},
+  year      = {2003},
+  doi       = {10.1145/872035.872036},
+  note      = {Competition-policy analysis of consumable/accessory binding
+              via cryptography; the business-model rationale behind a gated
+              reset}
+}
+
+@techreport{crs-dmca-1201,
+  title       = {Repair, Modification, or Resale of Software-Enabled Consumer
+                 Electronic Devices: Copyright Law Issues},
+  author      = {Yeh, Brian T.},
+  institution = {Congressional Research Service},
+  type        = {CRS Report},
+  number      = {R44590},
+  month       = aug,
+  year        = {2016},
+  url         = {https://crsreports.congress.gov/product/details?id=R44590},
+  note        = {DMCA \S1201 anti-circumvention and the first-sale / repair
+                lens on resetting software maintenance locks (published
+                2016-08-11)}
+}
+
+@misc{octoinkjet-wicreset,
+  title  = {{WIC Reset} / {Printer Potty} waste-ink counter reset},
+  author = {{OctoInkjet}},
+  year   = {2025},
+  url    = {https://octoink.co.uk/getwicreset},
+  note   = {The cloud-gated commercial tool whose device-side reset this work
+            proves is cloud-independent; genuine build PrinterPotty\_WICReset-5.95}
+}
+
+@misc{canon-5b00-support,
+  title  = {Support code 5B00 --- {Canon} {MegaTank}: ``Service is required''},
+  author = {{Canon U.S.A., Inc.}},
+  year   = {2024},
+  url    = {https://support.usa.canon.com/},
+  note   = {Manufacturer position: no user reset; warranty/replace only ---
+            the unavailability this work addresses (ART143380)}
+}
+
+% ─────────────────────────────────────────────────────────────────────────
+% This work's own validated artifacts (repo anchors)
+% ─────────────────────────────────────────────────────────────────────────
+@misc{canon-megatank-reset,
+  title  = {canon-megatank-reset: open, native {Linux} {Canon} {MegaTank}
+            waste-ink reset},
+  author = {{Tinyland, Inc.}},
+  year   = {2026},
+  url    = {https://github.com/tinyland-inc/canon-megatank-reset},
+  note   = {This work. Hardware-validated native reset at commit d2f3c81;
+            CANON-SR5 reference codec, safety-gate ops, protocol spec}
+}

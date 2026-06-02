@@ -85,6 +85,16 @@
         <RunSynchronousCommand wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
           <Order>1</Order><Path>reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE /v BypassNRO /t REG_DWORD /d 1 /f</Path>
         </RunSynchronousCommand>
+        <!-- Stage the SYSTEM-context WinRM setup: copy SetupComplete.cmd + the
+             ConfigureRemotingForAnsible PS1 from the autounattend CD (search all
+             drive letters for the marker) into %WINDIR%\Setup\Scripts\. Windows
+             runs SetupComplete.cmd as SYSTEM at the end of setup, before logon. -->
+        <RunSynchronousCommand wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+          <Order>2</Order><Path>cmd /c md %WINDIR%\Setup\Scripts</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+          <Order>3</Order><Path>cmd /c for %d in (D E F G H) do if exist %d:\SetupComplete.cmd ( copy /y %d:\SetupComplete.cmd %WINDIR%\Setup\Scripts\ &amp; copy /y %d:\ConfigureRemotingForAnsible.ps1 %WINDIR%\Setup\Scripts\ )</Path>
+        </RunSynchronousCommand>
       </RunSynchronous>
     </component>
   </settings>
@@ -114,20 +124,15 @@
         <Enabled>true</Enabled><LogonCount>99</LogonCount><Username>cap</Username>
         <Password><Value>canon-cap</Value><PlainText>true</PlainText></Password>
       </AutoLogon>
-      <!-- First-logon bootstrap: enable WinRM (HTTP/5985, Basic+unencrypted for a
-           throwaway lab VM on user-mode NAT) so Ansible can take over. This is
-           the ONLY thing autounattend does beyond install — the cloud-init-style
-           provisioning (driver/tool/deps) is the Ansible layer. -->
+      <!-- WinRM is configured by SetupComplete.cmd (SYSTEM context, before logon —
+           see ConfigureRemotingForAnsible.ps1), NOT here: the FirstLogon attempt
+           ran as the user with the NAT NIC on the Public profile, so the WinRM
+           firewall rule didn't open 5985. FirstLogon now just drops a marker. -->
       <FirstLogonCommands>
         <SynchronousCommand wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
           <Order>1</Order>
-          <CommandLine>powershell -NoProfile -ExecutionPolicy Bypass -Command "Enable-PSRemoting -Force; Set-Item WSMan:\localhost\Service\Auth\Basic $true; Set-Item WSMan:\localhost\Service\AllowUnencrypted $true; Set-Item WSMan:\localhost\Client\TrustedHosts -Value * -Force; netsh advfirewall firewall add rule name=WinRM-HTTP dir=in action=allow protocol=TCP localport=5985"</CommandLine>
-          <Description>enable WinRM for Ansible</Description>
-        </SynchronousCommand>
-        <SynchronousCommand wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
-          <Order>2</Order>
-          <CommandLine>cmd /c echo WINRM_READY > C:\winrm_ready.txt</CommandLine>
-          <Description>readiness marker</Description>
+          <CommandLine>cmd /c echo FIRSTLOGON %DATE% %TIME% > C:\firstlogon_ran.txt</CommandLine>
+          <Description>first-logon marker (WinRM done by SetupComplete/SYSTEM)</Description>
         </SynchronousCommand>
       </FirstLogonCommands>
     </component>
