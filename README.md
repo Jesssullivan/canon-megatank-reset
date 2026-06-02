@@ -27,6 +27,16 @@ vendor cloud — behind strict safety gates, deployable across a fleet via Ansib
 > resetting. It is not a press-button-anywhere resetter. Full validated procedure:
 > `docs/runbook/g6020-native-reset.md`.
 
+## Fixing another Canon? Start with the field guide
+
+Unbricking a **different** Canon (any PIXMA / MegaTank / G-series stuck on
+**5B00 / "waste ink absorber full"** or another service code)? Read the
+model-agnostic [**Canon service-mode RE field guide**](docs/research/canon-service-mode-field-guide.md)
+— it generalizes the validated G6020 work (service-mode entry, the vendor
+control-transfer transport, the session/keyword handshake, the EEPROM counter and
+commit-on-power-button behavior, the cipher to expect, and the usbmon↔Frida↔Ghidra
+method) into a reusable guide for *your* model, with links to the concrete evidence.
+
 ## What's here
 
 | Path | What |
