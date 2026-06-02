@@ -73,3 +73,7 @@ docs/paper/*.blg
 docs/paper/*.log
 docs/paper/*.out
 docs/paper/*.synctex.gz
+
+# MkDocs (Material) build output + cache
+site/
+.cache/

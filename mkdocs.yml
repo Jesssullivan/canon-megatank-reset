@@ -1,0 +1,94 @@
+# Docs site for canon-megatank-reset → https://jesssullivan.github.io/canon-megatank-reset/
+# Build: `just docs-build` (renders diagrams, then `mkdocs build`); serve: `just docs-serve`.
+# Generator choice (MkDocs + Material, not the SvelteKit house stack) is recorded in
+# docs/PRODUCTIONIZATION.md: canon is a Python/uv/Nix repo with zero Node, and Material is
+# pip/uv-installable, reads nav from the docs/ tree, and renders mermaid client-side.
+site_name: canon-megatank-reset
+site_url: https://jesssullivan.github.io/canon-megatank-reset/
+site_description: >-
+  Native, key-free, cloud-free Canon G-series MegaTank "5B00 ink absorber full" reset and
+  maintenance-protocol reverse engineering. Hardware-validated on the Canon G6020.
+site_author: Jess Sullivan
+copyright: >-
+  Code: zlib. Docs &amp; paper: CC-BY-4.0. © 2026 Jess Sullivan.
+
+repo_url: https://github.com/Jesssullivan/canon-megatank-reset
+repo_name: Jesssullivan/canon-megatank-reset
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+use_directory_urls: true
+
+theme:
+  name: material
+  custom_dir: overrides
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - footnotes
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        # Client-side mermaid for inline ```mermaid fences (e.g. the blog post).
+        # The standalone .dot graphviz sources are prerendered to SVG by `just diagrams`.
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+# Keep the LaTeX paper SOURCES out of the site (the built PDF + paper/README stay).
+exclude_docs: |
+  paper/*.tex
+  paper/*.cls
+  paper/*.bst
+  paper/*.sty
+  paper/*.bib
+  paper/*.aux
+  paper/*.log
+  paper/*.out
+  paper/*.bbl
+  paper/*.blg
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Jesssullivan/canon-megatank-reset

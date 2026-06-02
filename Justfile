@@ -58,6 +58,22 @@ diagrams fmt="svg":
       done
 
 # ─────────────────────────────────────────────
+# Docs site (MkDocs + Material → GitHub Pages). See mkdocs.yml + docs/PRODUCTIONIZATION.md.
+# Mermaid renders client-side; the standalone .dot/.mmd sources are prerendered by
+# `just diagrams` so the diagrams page can embed the SVGs. mkdocs-material comes from the
+# `docs` extra; mmdc + dot come from the flake.
+# ─────────────────────────────────────────────
+
+# Live-reload docs server at http://127.0.0.1:8000.
+docs-serve:
+    cd {{ root }} && uv run --extra docs mkdocs serve
+
+# Render diagrams, then build the static site into ./site (consumed by deploy-docs.yml).
+docs-build:
+    cd {{ root }} && just diagrams
+    cd {{ root }} && uv run --extra docs mkdocs build
+
+# ─────────────────────────────────────────────
 # Validation (static gates — run by CI)
 # ─────────────────────────────────────────────
 
