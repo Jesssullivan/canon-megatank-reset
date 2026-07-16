@@ -31,12 +31,28 @@ rules apply.
    inline comments explaining what each field means. The yaml is meant
    to be commitable as evidence and grep-able by future operators.
 
+5. **Reuse the recovered encoder — never reinvent the cipher.** The
+   functor-2/3 transform, keyword bind, and template tables live in
+   `src/canon_megatank/protocol/wicreset.py` (loaded from the SSOT via
+   `load_method_from_ssot`). Analysis/RE scripts MUST import those
+   primitives, not reimplement the keystream loop. **One sanctioned
+   exception:** `scripts/canon_sr5_cipher.py` is a *deliberate independent*
+   re-implementation (sourced from the decrypted `devices.xml`, not the SSOT)
+   whose only job is to cross-check the SSOT encoder byte-exact (23/23) in the
+   groundtruth tests — its parallel cipher is load-bearing, not drift; keep it
+   independent. Nothing — runtime or analysis — depends on `printerpotty.exe`
+   or `/tmp/.../devices.xml` at run time; `devices.xml` is provenance only. The read codecs are both
+   solved: `0x84` is a keyword-XOR stream over a constant descriptor;
+   `0x8c` is the *write* keystream over a zero plaintext (a keyed echo,
+   not the counter) — see `docs/research/canon-service-mode-field-guide.md`.
+   Reading the live waste counter needs the `query.normal` select path
+   (`[10 07 7C][15]`), not a bare register read.
+
 ## Inventory
 
-| Script | Purpose | Privilege | Mutates host? |
-| --- | --- | --- | --- |
-| `safe-ping-probe.py` | Read USB descriptors + IEEE-1284 device-id from a connected Canon printer; emit yaml for `maintenance.yaml::ping_suite_baseline` | sudo (kernel driver detach) | Stops ipp-usb briefly |
-| `r1-capture.sh` | Orchestrate full R1 cheap-spike capture (pre-flight + tshark + Wine prompt + cleanup) | sudo (modprobe usbmon, systemctl ipp-usb, tshark) | Stops + restarts ipp-usb |
+The full, current script inventory (purpose + privilege + cross-references) lives in
+[`../docs/TOOLS.md`](../docs/TOOLS.md) — the single source of truth. Keep it there;
+don't maintain a second table here, which only drifts.
 
 ## Adding a new script
 
@@ -50,7 +66,7 @@ rules apply.
    it should be — even if that means a no-op fast path.
 5. **Justfile recipe**: every operator-facing script gets a recipe in
    the root Justfile under the canon-tool section.
-6. **Add an entry to the table above.**
+6. **Add an entry to the inventory in [`../docs/TOOLS.md`](../docs/TOOLS.md).**
 
 ## Things scripts NEVER do
 

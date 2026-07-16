@@ -246,13 +246,24 @@ firmware increments as it parks ink in the absorber, and tests against a thresho
 to raise 5B00. The reset's job is to write that counter back down.
 
 **The encoded readback registers (G6020-observed).** Service-mode status reads come
-back **obfuscated** with the live session keyword (e). On the G6020:
+back **obfuscated** with the live session keyword (e). On the G6020 both observed read
+registers are now fully reversed — and **neither carries the live counter on a bare
+read**:
 
 - **`0x84`** — a **constant device/status descriptor**, *not* the live counter:
   decoded plaintext is **byte-identical before and after** an in-session clear, and
-  the codec is a simple keyword-XOR stream (fully cracked; (h)).
-- **`0x8c`** — the **more likely counter register** (it *does* vary independently),
-  but its codec is a **nonlinear** keyword key-schedule and is **not yet cracked**.
+  the codec is a simple keyword-XOR stream over that constant (fully cracked; (h)).
+- **`0x8c`** — **not** a counter register but a **keyed keystream echo**. The reply is
+  the printer's *own write keystream* applied to a **zero plaintext**:
+  `functor2_transform(method3, 0x00·20, seed_source = bind_keyword(method3, keyword‖00))`
+  — the exact functor-2 keystream the clear-path `set_command` writes use. Verified
+  byte-exact over **540 in-sample sessions (zero conflicts) plus 16 fresh out-of-sample
+  sessions predicted *before* reading**. Its per-session variation is the *keyword*
+  changing, not counter state — a textbook false-positive for "this register varies, so
+  it must be the counter." Bonus: because `0x8c` echoes the write keystream, those ~550
+  live sessions are a **free on-hardware oracle that independently confirms the write
+  cipher byte-exact** across hundreds of keywords. The actual counter is read via the
+  template's `query.normal` **select** path (`[10 07 7C][15]`), not a bare register read.
 
 **The commit-on-clean-power-button behavior (G6020-observed).** The 5B00 state does
 **not** commit on the in-session write alone, and it does **not** commit on a raw
@@ -271,6 +282,32 @@ read codec ((e)/(h)) enough to compare plaintexts. (3) Issue a clear (only once 
 trust the write path), power-button cycle, and re-read: the register whose decoded
 value **drops** is the counter. (4) Cross-check the operand against the model's
 template DB (h) and a cross-validation method.
+
+**The waste-counter command set is asymmetric — clear-only, by construction.** A
+natural question for "complete mastery" is whether the counter can be *re-armed* (set
+HIGH to recreate 5B00). It cannot — and not as a gap in the RE, but as a property of
+the protocol, triangulated three independent ways:
+
+- **Vendor Service Tool (ServiceTool_v5103, Ghidra).** Every maintenance operation
+  emits a fixed-literal payload (the dispatch "group" int is only a UI routing index;
+  the wire is driven by payload `b3`=sub-command / `b4`=index). The absorber op is
+  `[00 03 flags 03 idx]` (idx `0x07` = Main) — **no value field**. A binary-wide scan
+  finds **zero** `GetDlgItemInt`/`SetDlgItemInt` references: no operation reads a
+  numeric magnitude into a payload. The only value-bearing write is the Serial Number
+  (sub-command `0x3f`), a field-specific scatter into the serial region that does not
+  touch the absorber cell — there is **no raw `(address, value)` EEPROM write**.
+- **Decrypted template (the SSOT).** The whole `functions_waste` family is `10 07 7C`
+  then **`0D <region> 00`**; opcode `0x0D` is hard-wired clear-to-zero and the value
+  byte is invariantly `00`. No `0D <region> <value>` set-variant exists.
+- **Protocol invariant.** The clear is idempotent and only ever drives the counter
+  toward zero; the counter register is read-only over this command set.
+
+So the maintenance protocol exposes counter **CLEAR but not SET**. The absorber cell
+is firmware-resolved (the host names a region selector, never a flat EEPROM address),
+so re-arming requires firmware-level EEPROM access (outside any host protocol) or
+**physical fill** (real print/clean cycles until firmware trips the threshold). The
+asymmetry also bounds the tool's blast radius: it can only *reduce* the waste counter,
+never inflate it.
 
 ---
 
@@ -349,15 +386,21 @@ two distinct layers, and do not assume one cipher covers everything:
 
 **Two practical truths that save you effort (G6020-observed):**
 
-- The **write/clear path is NOT keyword-keyed.** The device ACK'd the *plain*
-  operand frames `85 00 00 00 00 10 07 7c` then `85 00 00 00 00 0d 00 00` (`OK(8)`)
-  with the operand sent verbatim. The keyword gates the **read** obfuscation, not
-  the write — so a working clear may need **no cipher at all**.
-- The **read codecs differ in difficulty.** `0x84` is a linear keyword-XOR stream,
-  cracked from ~40 random-keyword sessions (40/40 byte-exact, validated
-  out-of-sample); `0x8c` is **nonlinear** in all three keyword bytes and remains
-  open — finish it with a read-path Ghidra decompile **or** controlled-keyword
-  captures (keywords differing in a single byte).
+- The **working clear IS keyword-keyed.** A printer will *ACK* plain operand frames
+  (`85 00 00 00 00 10 07 7c` → `OK(8)`), but a plain clear is **firmware-gated** — it
+  ACKs yet 5B00 persists. The clear that actually commits sends each `set_command` as
+  a **functor-2 enciphered** frame bound to the live session keyword (the same
+  keystream `0x8c` echoes). So budget for the cipher: do not be fooled by a plain
+  frame's ACK into thinking the write path is unkeyed.
+- The **read codecs differ in difficulty, and both are now cracked.** `0x84` is a
+  linear keyword-XOR stream over a constant descriptor, cracked from ~40
+  random-keyword sessions (40/40 byte-exact, validated out-of-sample). `0x8c` is
+  **nonlinear** in all three keyword bytes — not because it carries data, but because
+  it is the printer echoing its **own functor-2 write keystream over a zero
+  plaintext**. Recognising it as the *write* cipher (not a fresh block cipher) cracked
+  it outright (byte-exact over 540 + 16 sessions) and turned it into a free
+  on-hardware oracle for the write keystream. Lesson: before assuming a nonlinear read
+  schedule, test whether the read is just your *write* keystream over a fixed plaintext.
 
 **How to peel obfuscation on a new model.** Decrypt the at-rest template DB first
 (Lane 3) to read the command tables in clear; then attack the on-wire codec with a
