@@ -153,6 +153,13 @@ capture-read label="wicreset-read":
 capture-sync:
     rsync -av {{ capture_host }}:~/canon-tool-staging/captures/ {{ root }}/captures/incoming/
 
+# READ-ONLY readback-codec capture on the capture host: N service-mode sessions
+# (set_session -> get_keyword -> read 0x84/0x8c; NO writes), self-validated by the
+# cracked 0x84 oracle. Produces the {kw,r84,r8c} dataset that confirms the write
+# keystream via the 0x8c echo (see field guide). Usage: just codec-capture [N] [out.json]
+codec-capture n="200" out="/tmp/codec-capture.json":
+    ssh {{ capture_host }} 'bash -lc "cd ~/git/canon-megatank-reset && .venv/bin/python scripts/g6020_codec_capture.py {{ n }} {{ out }}"'
+
 # Intercept the G6020 panel-initiated firmware download (Lane C / approach A).
 # Operator drives the printer panel; this captures the plain-HTTP blob URL.
 # Override INTERCEPT_IFACE/PRINTER_IP.

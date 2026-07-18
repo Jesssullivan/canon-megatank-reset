@@ -163,9 +163,10 @@ The wire frame is `85 00 00 || functor2(envelope3(85 00 00 || op), bound_keyword
 total. Validated **23/23** against ground truth captured from the genuine tool: e.g. for the
 SELECTOR operand `10 07 7c` with a known keyword, the encoder reproduces
 `85 00 00 db bb 00 67 59 a1 b0 1f 84 2f d5 83 04 4a 3a c3 51 d2 b1 ef` byte-for-byte. The full
-keystream tables (`command.index`, `command.codes`, the operator-VM `command.shift` programs) are
-in the repo's spec and the recovered `devices.xml`; this post gives the shape, the repo gives every
-byte.
+keystream tables (`command.index`, `command.codes`, the operator-VM `command.shift` programs) live
+in the repo's own SSOT (`printers/canon-g6020/maintenance.yaml`) — recovered once, then ours; the
+tool never reads `devices.xml` or the vendor binary at runtime. This post gives the shape, the repo
+gives every byte.
 
 ### Where the template comes from
 
@@ -181,6 +182,35 @@ APP.BIN  --3DES-EDE3-CBC (all-zero 24-byte key, all-zero IV)-->  ZIP
 A zero key and a zero IV is not encryption; it is obfuscation. Once decrypted, `devices.xml` hands
 you the entire per-model maintenance template in cleartext — opcodes, the keyword table, and the
 cipher tables. **The reset bytes are bundled and trivially recoverable, not cloud-sourced.**
+
+---
+
+## Reading the Printer Back — and a Red Herring
+
+Service mode answers two status reads, `0x84` and `0x8c`, both obfuscated with the per-session
+keyword. To find the waste counter I captured ~550 **read-only** sessions (open session → read
+keyword → read both registers; no writes) against the locked G6020, then looked for the register
+whose decoded plaintext stays constant while the keyword churns.
+
+`0x84` fell fast: a linear keyword-XOR stream over a fixed 20-byte device descriptor. Decoded, it
+is byte-identical every session — clearly *not* the counter.
+
+`0x8c` looked like the prize. It changed every single session — exactly what a live counter under a
+rotating key should do — and it resisted: nonlinear in all three keyword bytes, no linear fit. Then
+the obvious-in-hindsight test: what if `0x8c` isn't a *new* cipher at all, but the printer echoing
+its **own write keystream**? I ran our `functor2_transform` over a 20-byte **zero** plaintext, keyed
+by the same bound session keyword the writes use — and it reproduced `0x8c` byte-for-byte. **540
+sessions in-sample with zero conflicts, then 16 fresh sessions predicted *before* I read them.**
+
+So `0x8c` carries no counter. It is a keyed keystream echo over zeros, and its per-session
+"variation" is just the keyword moving. The register that *looked* most like the counter — because
+it varied independently — was the textbook false positive.
+
+The happy accident: a register that echoes our write keystream is a **free oracle**. Those ~550 live
+responses independently confirm the write cipher we ship is byte-exact against the real printer
+across hundreds of keywords — the strongest validation of the clear path short of re-running the
+clear hundreds of times. (The real counter is read through the template's `query.normal` *select*
+path, `[10 07 7C][15]`, not a bare register read.)
 
 ---
 

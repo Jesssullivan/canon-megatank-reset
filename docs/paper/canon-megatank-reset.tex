@@ -400,7 +400,7 @@ interface, host$\rightarrow$device); \texttt{VENDOR\_GET} yields
 \texttt{0xC1} (vendor, interface, IN). This was cross-checked against two
 mappings the live device already confirmed: \texttt{GET\_1284\_ID}
 (class/interface/IN $\Rightarrow$ \texttt{0xA1}) and \texttt{VENDOR\_GET}
-of the firmware version (\texttt{0xC1/0x8a}), both byte-exact.
+of the model/version string (\texttt{0xC1/0x8a}), both byte-exact.
 
 \begin{figure}[ht]
 \centering
@@ -582,7 +582,39 @@ keyword-parametric (it also reproduces a differently-keyed prior capture),
 but generalizing the padding rule to arbitrary keywords requires a
 controlled multi-sample campaign, analogous to the $\sim$40-sample
 campaign that cracked the read-side codec. We state this boundary
-explicitly rather than overclaim.
+explicitly rather than overclaim---and we close it in
+\Cref{sec:keystream-confirm}, where a $\sim$550-keyword read-only
+campaign confirms the keyword-parametric encoder byte-exact.
+
+\subsection{Multi-sample confirmation via the \texttt{0x8c} readback}
+\label{sec:keystream-confirm}
+
+The boundary above---that one \texttt{(keyword, payload)} pair cannot
+generalize the keyword bind and 4th-byte padding---is resolved by an
+unexpected property of the service-mode readback. We captured 540 read-only
+sessions of constant device state (open session, read the live keyword, read
+registers \texttt{0x84} and \texttt{0x8c}; no writes), each under a distinct
+session keyword. Register \texttt{0x84} decodes to a constant 20-byte device
+descriptor under a linear keyword-XOR stream. Register \texttt{0x8c} is
+nonlinear in all three keyword bytes and at first appears to be the live
+counter---it varies every session. It is not: \texttt{0x8c} is the printer
+echoing its \emph{own functor-2 write keystream over a zero plaintext}, i.e.\
+\texttt{functor2(method3,\,$0^{20}$,\,seed{=}bind\_keyword(method3,\,kw\,$\|$\,0x00))}.
+The encoder that emits the clear reproduces all 540 \texttt{0x8c} replies with
+zero conflicts and predicts 16 further \emph{out-of-sample} sessions byte-exact
+\emph{before} reading them.
+
+Two consequences follow. First, the keyword bind and 4-byte padding rule are
+\emph{confirmed for arbitrary keywords}: the multi-sample campaign the negative
+result called for has been run, and the keyword-parametric encoder is
+byte-exact across $\sim$550 distinct keywords. Register \texttt{0x8c} is, in
+effect, a free on-hardware oracle for the write keystream---the strongest
+validation of the clear path short of issuing the clear hundreds of times.
+Second, it is a cautionary methodological result: the register that
+\emph{looked} most like the counter, precisely because it varied independently
+of state, was a keyed keystream echo carrying no counter data. The actual
+counter is reached through the template's \texttt{query.normal} select path
+(\texttt{[10 07 7C][15]}), not a bare register read.
 
 % ════════════════════════════════════════════════════════════════════════
 \section{DRM Bypass for Ground Truth, and the Cloud-Independence Proof}
@@ -871,6 +903,27 @@ is a documented precondition, since clearing the counter on a genuinely
 full pad risks ink overflow. We discuss the relevant DMCA~\S1201
 software-repair exemption framing~\cite{crs-dmca-1201} as context for
 publishing the protocol, not as legal advice.
+
+A further property strengthens this posture: the maintenance command set is
+\emph{asymmetric}---it exposes a counter \emph{clear} but no counter
+\emph{set}. We establish this by triangulation, not assumption. First, an
+exhaustive static pass over the vendor Service Tool
+(\texttt{ServiceTool\_v5103}) shows every absorber operation emits a
+fixed-literal payload \texttt{[00 03 flags 03 idx]} with no value field, and the
+binary contains \emph{zero} \texttt{GetDlgItemInt}/\texttt{SetDlgItemInt}
+references: no operation reads a numeric magnitude into a maintenance frame (the
+only value-bearing write, the serial number, scatters into a serial-only region
+and never reaches the absorber cell). Second, in the decrypted template the
+entire waste family is the selector \texttt{10 07 7C} then \texttt{0D}, a region
+byte, and \texttt{00}; opcode \texttt{0x0D} is hard-wired to clear-to-zero and
+the trailing value byte is invariantly \texttt{00}---no set-to-value operand
+exists. Third, the recovered clear is idempotent and the counter register is
+read-only over this command set. The absorber counter can therefore be driven
+toward zero but never upward; recreating the 5B00 state would require
+firmware-level EEPROM access outside any host protocol, or physical wear. This
+asymmetry bounds the tool's blast radius---it can only \emph{reduce} a
+maintenance counter, never inflate one to disable a unit---a desirable property
+for an interoperable repair tool.
 
 % ════════════════════════════════════════════════════════════════════════
 \section{Comparison with Existing Approaches}
