@@ -30,8 +30,8 @@ jobs:
     runs-on: ${{ fromJSON(vars.PRIMARY_LINUX_RUNNER_LABELS_JSON || '["ubuntu-latest"]') }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
-      - uses: tinyland-inc/ci-templates/.github/actions/setup-nix@v2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: xoxd-ai/ci-templates/.github/actions/setup-nix@2edb7fd20d7111e36ee52e60b166ffc608c81bee # v2.14.1
       - run: nix develop --command just docs-build
       - uses: actions/upload-pages-artifact@v3
         with:
